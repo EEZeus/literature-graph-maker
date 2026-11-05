@@ -1,0 +1,1949 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Citation Graph Explorer</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js"></script>
+<style>
+:root{
+  --bg:#f6f7f9; --panel:#ffffff; --ink:#1b1f24; --muted:#5f6b7a; --line:#e2e6eb;
+  --accent:#2f6fde; --accent-ink:#ffffff; --ref:#2f6fde; --cite:#d9572b; --path:#d4a106;
+  --edge:#3c4655; --edge-op:.25; --node-stroke:rgba(20,25,30,.55); --hover:#eef3fb;
+  --warn-bg:#fff4e5; --warn-ink:#8a4b00; --shadow:0 1px 2px rgba(0,0,0,.06),0 4px 16px rgba(0,0,0,.07);
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#0f1216; --panel:#171b21; --ink:#e7ebf0; --muted:#98a3b1; --line:#2a3039;
+    --accent:#5b8ff0; --accent-ink:#0b0e12; --ref:#6b9cf5; --cite:#f0875f; --path:#f2c94c;
+    --edge:#c8d2e1; --node-stroke:rgba(255,255,255,.55); --hover:#1f2631;
+    --warn-bg:#3a2a12; --warn-ink:#ffcf8a; --shadow:0 4px 16px rgba(0,0,0,.4);
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0f1216; --panel:#171b21; --ink:#e7ebf0; --muted:#98a3b1; --line:#2a3039;
+  --accent:#5b8ff0; --accent-ink:#0b0e12; --ref:#6b9cf5; --cite:#f0875f; --path:#f2c94c;
+  --edge:#c8d2e1; --node-stroke:rgba(255,255,255,.55); --hover:#1f2631;
+  --warn-bg:#3a2a12; --warn-ink:#ffcf8a; --shadow:0 4px 16px rgba(0,0,0,.4);
+}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html,body{margin:0;height:100%}
+body{background:var(--bg);color:var(--ink);font:14px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;display:flex;flex-direction:column}
+button,input,select,textarea{font:inherit;color:inherit}
+a{color:var(--accent)}
+header{display:flex;gap:10px;align-items:center;padding:10px 16px;background:var(--panel);border-bottom:1px solid var(--line);flex-wrap:wrap}
+header h1{font-size:16px;margin:0 6px 0 0;white-space:nowrap}
+#searchForm{display:flex;gap:8px;flex:1;min-width:240px}
+#q{flex:1;min-width:0;padding:8px 12px;border:1px solid var(--line);border-radius:8px;background:var(--bg)}
+.btn{padding:7px 12px;border:1px solid var(--line);border-radius:8px;background:var(--panel);cursor:pointer;white-space:nowrap;line-height:1.2}
+.btn:hover{background:var(--hover)}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink);font-weight:600}
+.btn.small{padding:4px 8px;font-size:12.5px}
+.btn.on{border-color:var(--accent);color:var(--accent);font-weight:600}
+.btn:disabled{opacity:.5;cursor:default}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.seg button{border:none;border-radius:0;background:var(--panel);padding:4px 9px;font-size:12.5px;cursor:pointer}
+.seg button.on{background:var(--accent);color:var(--accent-ink);font-weight:600}
+#controls{display:flex;gap:6px 14px;align-items:center;padding:8px 16px;border-bottom:1px solid var(--line);background:var(--panel);flex-wrap:wrap}
+.ctl{display:flex;gap:6px;align-items:center;font-size:12.5px;color:var(--muted)}
+.ctl input[type=number],.ctl input[type=text],.ctl input[type=password],.ctl select{padding:3px 6px;border:1px solid var(--line);border-radius:6px;background:var(--bg);min-width:0}
+.ctl input[type=number]{width:72px}
+.ctl input[type=range]{width:120px;accent-color:var(--accent)}
+.ctl input[type=checkbox]{accent-color:var(--accent)}
+.ctl .val{min-width:34px;text-align:right;font-variant-numeric:tabular-nums}
+.ctl.stack{flex-direction:column;align-items:stretch;gap:3px}
+.ctl.stack input[type=number],.ctl.stack input[type=text],.ctl.stack input[type=password],.ctl.stack select{width:100%;padding:6px 8px}
+.ctl .help{font-size:11.5px;color:var(--muted);opacity:.85}
+.ctl .multi{display:flex;flex-wrap:wrap;gap:4px 10px;color:var(--ink)}
+.ctl .multi label{display:flex;gap:4px;align-items:center}
+main{flex:1;display:grid;grid-template-columns:310px 1fr 360px;min-height:0}
+aside{background:var(--panel);overflow:auto;min-height:0}
+#left{border-right:1px solid var(--line)}
+#right{border-left:1px solid var(--line)}
+.sect-h{display:flex;justify-content:space-between;align-items:center;padding:12px 14px 8px;font-weight:600;gap:8px;position:sticky;top:0;background:var(--panel);z-index:1;flex-wrap:wrap}
+.sect-h select,.sect-h input{font-weight:400;font-size:12.5px;padding:3px 6px;border:1px solid var(--line);border-radius:6px;background:var(--bg)}
+.item{padding:9px 14px;border-top:1px solid var(--line);cursor:pointer}
+.item:hover,.item.sel{background:var(--hover)}
+.item .t{font-weight:550}
+.item .m{color:var(--muted);font-size:12.5px}
+.item .acts{margin-top:6px;display:flex;gap:6px}
+.dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:6px;border:1px solid var(--node-stroke);vertical-align:0}
+#seedBox{padding:10px 14px;border-bottom:1px solid var(--line);background:var(--hover)}
+.chip{display:inline-flex;gap:6px;align-items:center;font-size:12px;border:1px solid var(--line);background:var(--panel);border-radius:12px;padding:2px 4px 2px 9px;margin:0 4px 4px 0;max-width:100%}
+.chip span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.chip button{border:none;background:none;cursor:pointer;color:var(--muted);padding:0 4px}
+#graphCol{display:flex;flex-direction:column;min-width:0;min-height:0}
+#toolbar{display:flex;gap:6px 8px;align-items:center;flex-wrap:wrap;padding:8px 12px;border-bottom:1px solid var(--line);background:var(--panel)}
+#toolbar .ctl select{font-size:12.5px}
+#toolbar .sp{flex:1}
+#graphWrap{position:relative;flex:1;min-height:0}
+svg#graph{width:100%;height:100%;display:block;cursor:grab;touch-action:none}
+svg#graph:active{cursor:grabbing}
+.link{stroke:var(--edge);stroke-opacity:var(--edge-op)}
+.link.out{stroke:var(--ref);stroke-opacity:1}
+.link.in{stroke:var(--cite);stroke-opacity:1}
+.link.nb{stroke:var(--accent);stroke-opacity:.9}
+.link.path{stroke:var(--path);stroke-opacity:1}
+.node circle{stroke:var(--node-stroke);stroke-width:1;cursor:pointer}
+.node.root circle{stroke:var(--accent);stroke-width:3.5}
+.node.sel circle{stroke:var(--ink);stroke-width:3}
+.node.path circle{stroke:var(--path);stroke-width:4}
+.node.pinned circle{stroke-dasharray:3 2}
+.node text{fill:var(--ink);pointer-events:none;paint-order:stroke;stroke:var(--bg);stroke-width:3px;stroke-linejoin:round}
+.dim{opacity:.12}
+.bgline{stroke:var(--line);fill:none}
+.bgtext{fill:var(--muted);font-size:11px}
+#axisOverlay text{fill:var(--muted);font-size:11px}
+#axisOverlay line{stroke:var(--line)}
+#status{position:absolute;left:12px;bottom:12px;right:12px;display:flex;gap:10px;align-items:center;pointer-events:none}
+#statusText{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:6px 10px;font-size:12.5px;color:var(--muted);box-shadow:var(--shadow);pointer-events:auto;max-width:100%}
+#statusText:empty{display:none}
+#cancelBtn{pointer-events:auto}
+#legend{position:absolute;top:12px;left:12px;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:8px 10px;font-size:12px;color:var(--muted);box-shadow:var(--shadow);max-width:230px;max-height:calc(100% - 80px);overflow:auto}
+#legend .bar{height:8px;width:160px;border-radius:4px;margin:4px 0 2px}
+#legend .row{display:flex;justify-content:space-between}
+#legend .k{display:flex;gap:6px;align-items:center;margin-top:3px;cursor:default}
+#legend .k.clk{cursor:pointer}
+#legend .k.clk:hover{color:var(--ink)}
+#legend .k i{display:inline-block;width:16px;height:2px;flex:none}
+#legend .k b{display:inline-block;width:10px;height:10px;border-radius:50%;flex:none;border:1px solid var(--node-stroke)}
+#legend .k span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pop{position:absolute;top:8px;right:12px;width:320px;max-width:calc(100% - 24px);max-height:calc(100% - 70px);overflow:auto;background:var(--panel);border:1px solid var(--line);border-radius:10px;box-shadow:var(--shadow);padding:12px 14px;z-index:5}
+.pop h4{margin:12px 0 6px;font-size:12px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted)}
+.pop h4:first-child{margin-top:0}
+.pop .ctl{justify-content:space-between;margin:5px 0}
+.menu{position:absolute;top:8px;right:12px;background:var(--panel);border:1px solid var(--line);border-radius:10px;box-shadow:var(--shadow);padding:6px;z-index:6;display:flex;flex-direction:column;min-width:210px}
+.menu button{text-align:left;border:none;background:none;padding:7px 10px;border-radius:6px;cursor:pointer}
+.menu button:hover{background:var(--hover)}
+.menu .sep{height:1px;background:var(--line);margin:4px 0}
+#empty{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;text-align:center;color:var(--muted);padding:24px}
+#empty div{max-width:460px}
+.tabs{display:flex;border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--panel);z-index:2;padding:0 8px}
+.tab{padding:10px 12px;border:none;background:none;cursor:pointer;color:var(--muted);border-bottom:2px solid transparent}
+.tab.on{color:var(--ink);border-bottom-color:var(--accent);font-weight:600}
+.pane{padding:16px}
+#right h2{font-size:16px;margin:0 0 6px;line-height:1.3}
+#right h3{font-size:13px;margin:18px 0 6px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted)}
+#right .m{color:var(--muted);font-size:13px;margin-bottom:5px}
+#right .abs{font-size:13px;margin:10px 0;white-space:pre-wrap}
+.links{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0}
+.links a{font-size:12.5px;text-decoration:none;border:1px solid var(--line);border-radius:6px;padding:3px 8px}
+.links a:hover{background:var(--hover)}
+.acts2{display:flex;gap:6px;flex-wrap:wrap;margin:8px 0}
+.badge{display:inline-block;font-size:11.5px;padding:1px 7px;border-radius:10px;border:1px solid var(--line);color:var(--muted);margin:0 4px 4px 0}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:3px 12px;font-size:13px}
+.kv b{font-weight:600}
+.rank{list-style:none;margin:0;padding:0;font-size:13px}
+.rank li{display:flex;gap:8px;justify-content:space-between;padding:4px 6px;border-radius:6px;cursor:pointer;align-items:baseline}
+.rank li:hover,.rank li.on{background:var(--hover)}
+.rank li span:first-child{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rank li .n{color:var(--muted);font-variant-numeric:tabular-nums;flex:none}
+.hist rect{fill:var(--accent);opacity:.75;cursor:pointer}
+.hist rect:hover,.hist rect.on{opacity:1;fill:var(--cite)}
+.hist text{fill:var(--muted);font-size:10px}
+.warn{background:var(--warn-bg);color:var(--warn-ink);padding:8px 10px;border-radius:8px;font-size:12.5px;margin:10px 14px}
+.muted{color:var(--muted)}
+.small{font-size:12.5px}
+dialog{border:1px solid var(--line);border-radius:12px;background:var(--panel);color:var(--ink);max-width:640px;width:calc(100% - 32px);padding:0;max-height:calc(100% - 32px)}
+dialog::backdrop{background:rgba(0,0,0,.35)}
+dialog .dhead{display:flex;justify-content:space-between;align-items:center;padding:14px 18px 0}
+dialog .dhead h3{margin:0}
+dialog .dbody{padding:14px 18px;overflow:auto;max-height:calc(100vh - 200px)}
+dialog .grid{display:grid;grid-template-columns:1fr 1fr;gap:12px 16px}
+dialog .grid .full{grid-column:1/-1}
+dialog .dfoot{display:flex;justify-content:space-between;gap:8px;padding:12px 18px;border-top:1px solid var(--line)}
+dialog p{font-size:12.5px;color:var(--muted);margin:4px 0}
+.srcrow{display:flex;gap:8px;align-items:center;padding:6px 8px;border:1px solid var(--line);border-radius:8px;margin:4px 0;color:var(--ink);font-size:13px}
+.srcrow span{flex:1}
+kbd{font:12px ui-monospace,monospace;border:1px solid var(--line);border-bottom-width:2px;border-radius:4px;padding:0 5px;background:var(--bg)}
+@media (max-width:1100px){ main{grid-template-columns:280px 1fr 320px} }
+@media (max-width:980px){
+  html,body{height:auto}
+  main{grid-template-columns:1fr;grid-template-rows:auto auto auto}
+  #left{border-right:none;border-bottom:1px solid var(--line);max-height:42vh}
+  #graphCol{height:78vh}
+  #right{border-left:none;border-top:1px solid var(--line)}
+  #legend{top:auto;bottom:56px}
+  dialog .grid{grid-template-columns:1fr}
+}
+</style>
+</head>
+<body>
+<header>
+  <h1>Citation Graph Explorer</h1>
+  <form id="searchForm">
+    <input id="q" type="search" placeholder="Title, DOI, arXiv ID, OpenAlex ID (W…) or PMID…" autocomplete="off">
+    <button class="btn primary" type="submit">Search</button>
+  </form>
+  <button class="btn" id="themeBtn" title="Theme: auto / light / dark">Theme: auto</button>
+  <button class="btn" id="settingsBtn" title="Fetching, filters, sources, performance, export">Settings</button>
+</header>
+<div id="controls"></div>
+<main>
+  <aside id="left">
+    <div id="seedBox" hidden></div>
+    <div id="leftBody"><div class="warn" style="background:transparent;color:var(--muted)">Search for a paper, then press <b>Build graph</b>, or add several papers with <b>+ Seed</b> and build one combined graph.</div></div>
+  </aside>
+  <div id="graphCol">
+    <div id="toolbar" hidden></div>
+    <div id="graphWrap">
+      <svg id="graph"></svg>
+      <div id="empty"><div><b>No graph yet</b><br>Search a title, DOI (e.g. 10.1109/CVPR.2016.90) or arXiv ID (e.g. 1706.03762). Each node is a paper; arrows point from a paper to the papers it cites. Switch to <b>Similarity</b> view for a Connected-Papers-style map.</div></div>
+      <div id="legend" hidden></div>
+      <div id="viewPanel" class="pop" hidden></div>
+      <div id="exportMenu" class="menu" hidden></div>
+      <div id="status"><span id="statusText"></span><button class="btn small" id="cancelBtn" hidden>Cancel</button></div>
+    </div>
+  </div>
+  <aside id="right">
+    <div class="tabs"><button class="tab on" data-tab="details">Details</button><button class="tab" data-tab="analysis">Analysis</button><button class="tab" data-tab="library">Library</button></div>
+    <div class="pane" id="pane-details"><div class="muted">Click a node to see details. Double-click a node to expand it.</div></div>
+    <div class="pane" id="pane-analysis" hidden></div>
+    <div class="pane" id="pane-library" hidden></div>
+  </aside>
+</main>
+
+<dialog id="settings">
+  <div class="dhead"><h3>Settings</h3><button class="btn small" id="closeSettings">Close</button></div>
+  <div class="tabs" id="settingsTabs" style="position:static;margin-top:8px"></div>
+  <div class="dbody" id="settingsBody"></div>
+  <div class="dfoot"><button class="btn" id="resetSettings">Reset all to defaults</button><span class="muted small" style="align-self:center">Changes apply immediately and are remembered in this browser.</span></div>
+</dialog>
+<input type="file" id="importFile" accept=".json,application/json" hidden>
+<script>
+"use strict";
+/* =====================================================================
+   SETTINGS
+   ===================================================================== */
+const $ = id => document.getElementById(id);
+const LS = {
+  get(k, d){ try{ const v = localStorage.getItem(k); return v==null ? d : JSON.parse(v); }catch(e){ return d; } },
+  set(k, v){ try{ localStorage.setItem(k, JSON.stringify(v)); return true; }catch(e){ return false; } },
+  del(k){ try{ localStorage.removeItem(k); }catch(e){} },
+};
+const DOC_TYPES = [['article','Article / conference paper'],['review','Review'],['preprint','Preprint'],['book','Book'],['book-chapter','Book chapter'],['dataset','Dataset'],['dissertation','Dissertation'],['other','Other']];
+const CSV_COLS = [['title','Title'],['authors','Authors'],['year','Year'],['venue','Venue'],['type','Type'],['citations','Citations'],['references','References'],['doi','DOI'],['openalex','OpenAlex ID'],['s2','Semantic Scholar ID'],['depth','Depth'],['side','Side'],['cluster','Cluster'],['pagerank','PageRank'],['degree','Degree in graph'],['oa','Open access'],['oa_url','Open-access URL'],['abstract','Abstract']];
+const DEFAULTS = {
+  // fetch
+  depth:2, rankBy:'cites', useRefs:true, kRefs:12, useCites:true, kCites:12, maxNodes:150, decay:'1',
+  yearFrom:'', yearTo:'', minCitesFetch:0, types:[], oaOnly:false, lang:'', crossLinks:true,
+  searchN:'12', searchYearFrom:'', searchYearTo:'', filtersOnSearch:false,
+  // sources
+  source:'auto', order:['openalex','s2','oc'], enabled:{openalex:true, s2:true, oc:true}, oaKey:'', s2Key:'',
+  s2CiteScan:'1000', ocCiteCap:4000, ocCiterSample:200, ocRefMax:400,
+  // performance
+  speed:'normal', parallel:4, retries:3, maxWait:90, cacheOn:true, cacheDays:7,
+  // view
+  mode:'citation', layout:'force', colorBy:'year', palette:'viridis', reversePalette:false, sizeBy:'cites', sizeScale:1,
+  labelMode:'author-year', labelTopN:40, labelSize:10.5, arrows:true, edgeOpacity:0.25, edgeWidth:1,
+  refColor:'', citeColor:'', linkDist:55, charge:60, collide:3, gravity:0.04, freeze:false,
+  vYearFrom:'', vYearTo:'', vMaxDepth:'all', vMinCites:0, hideIsolated:false,
+  emptyFallback:'seeds', combineSeeds:false,
+  simK:4, simMin:0.05, wCouple:1, wCocite:1, wDirect:0.5, theme:'auto',
+  // export
+  exportVisibleOnly:false, csvCols:['title','authors','year','venue','type','citations','references','doi','depth','cluster'], pngScale:'2',
+};
+const settings = Object.assign(JSON.parse(JSON.stringify(DEFAULTS)), (()=>{ const o = LS.get('cg.settings', {}); return {source:o.source, oaKey:o.oaKey, s2Key:o.s2Key}; })(), LS.get('cg.settings2', {}));
+for(const k of Object.keys(settings)) if(settings[k]===undefined) settings[k] = DEFAULTS[k];
+if(!Array.isArray(settings.order) || settings.order.length!==3) settings.order = DEFAULTS.order.slice();
+settings.enabled = Object.assign({}, DEFAULTS.enabled, settings.enabled);
+function saveSettings(){ LS.set('cg.settings2', settings); }
+const int = (v, d, lo=-Infinity, hi=Infinity) => { const n = parseInt(v, 10); return isNaN(n) ? d : Math.max(lo, Math.min(hi, n)); };
+const flt = (v, d, lo=-Infinity, hi=Infinity) => { const n = parseFloat(v); return isNaN(n) ? d : Math.max(lo, Math.min(hi, n)); };
+
+/* =====================================================================
+   CACHE + HTTP
+   ===================================================================== */
+const mem = new Map();
+const CACHE_MAX = 400000;
+function cacheGet(k){
+  if(mem.has(k)) return mem.get(k);
+  if(!settings.cacheOn) return undefined;
+  const e = LS.get('cg:'+k, null);
+  if(e && Date.now()-e.t < int(settings.cacheDays,7,0,365)*864e5){ mem.set(k, e.v); return e.v; }
+  return undefined;
+}
+function cachePut(k, v){
+  mem.set(k, v);
+  if(!settings.cacheOn) return;
+  const s = JSON.stringify({t:Date.now(), v});
+  if(s.length > CACHE_MAX) return;
+  try{ localStorage.setItem('cg:'+k, s); }catch(e){ clearCache(); }
+}
+function clearCache(){ try{ Object.keys(localStorage).filter(k=>k.startsWith('cg:')).forEach(k=>localStorage.removeItem(k)); }catch(e){} }
+
+let netCalls = 0, cancelFlag = false;
+class SourceError extends Error{ constructor(src, msg, rate){ super(msg); this.src = src; this.rateLimited = !!rate; } }
+function makeQueue(concurrency, minGap){
+  let active = 0, last = 0; const q = [];
+  function pump(){
+    while(active < concurrency && q.length){
+      const wait = last + minGap - Date.now();
+      if(wait > 0){ setTimeout(pump, wait); return; }
+      const job = q.shift(); active++; last = Date.now();
+      Promise.resolve().then(job.fn).then(job.res, job.rej).finally(()=>{ active--; pump(); });
+    }
+  }
+  return fn => new Promise((res, rej)=>{ q.push({fn, res, rej}); pump(); });
+}
+const SPEEDS = {
+  gentle:{openalex:[2,300], s2:[1,1600], oc:[1,500], crossref:[1,1500]},
+  normal:{openalex:[4,120], s2:[1,1100], oc:[2,250], crossref:[1,1050]},
+  fast:  {openalex:[8,40],  s2:[1,1000], oc:[4,100], crossref:[2,600]},
+};
+let queues = {};
+function makeQueues(){ const sp = SPEEDS[settings.speed] || SPEEDS.normal; queues = Object.fromEntries(Object.entries(sp).map(([k,[c,g]])=>[k, makeQueue(c,g)])); }
+makeQueues();
+const cooldown = {};
+const sleep = ms => new Promise(r=>setTimeout(r, ms));
+const NAMES = {openalex:'OpenAlex', s2:'Semantic Scholar', oc:'OpenCitations/Crossref', crossref:'Crossref'};
+
+async function getJSON(src, url, {headers={}, cacheKey=url, queue=src} = {}){
+  const ck = src+'|'+cacheKey;
+  const hit = cacheGet(ck);
+  if(hit !== undefined) return hit;
+  const tries = int(settings.retries,3,0,10) + 1, maxWait = int(settings.maxWait,90,1,600);
+  for(let attempt=0; attempt<tries; attempt++){
+    if(cancelFlag) throw new SourceError(src, 'Cancelled');
+    if((cooldown[src]||0) > Date.now()){
+      if(settings.source === 'auto') throw new SourceError(src, NAMES[src]+' is cooling down', true);
+      const w = cooldown[src]-Date.now(); setStatus(`${NAMES[src]} asked us to wait ${Math.ceil(w/1000)} s…`); await sleep(w);
+    }
+    let res;
+    try{ res = await queues[queue](()=>{ netCalls++; return fetch(url, {headers}); }); }
+    catch(e){
+      // Some APIs (e.g. Semantic Scholar) omit CORS headers on 429 replies, so a rate limit looks like a network error.
+      if(attempt < tries-1 && settings.source!=='auto'){ setStatus(`${NAMES[src]} did not answer (probably rate-limited) — retrying…`); await sleep((attempt+1)*4000); continue; }
+      cooldown[src] = Date.now() + 8000;
+      throw new SourceError(src, `${NAMES[src]} did not answer (network error or rate limit)`, true);
+    }
+    if(res.status === 429 || res.status === 503){
+      const ra = Math.min(maxWait, Number(res.headers.get('retry-after')) || (attempt+1)*8);
+      cooldown[src] = Date.now() + ra*1000;
+      if(settings.source === 'auto') throw new SourceError(src, `${NAMES[src]} rate limit`, true);
+      continue;
+    }
+    if(res.status === 404){ cachePut(ck, null); return null; }
+    if(!res.ok) throw new SourceError(src, `${NAMES[src]} HTTP ${res.status}`);
+    const j = await res.json();
+    cachePut(ck, j);
+    return j;
+  }
+  throw new SourceError(src, `${NAMES[src]} rate limit (retries exhausted)`, true);
+}
+
+/* =====================================================================
+   PAPER MODEL, FILTERS, RANKING
+   ===================================================================== */
+const normDoi = d => d ? String(d).replace(/^https?:\/\/(dx\.)?doi\.org\//i,'').replace(/^doi:/i,'').trim().toLowerCase() : null;
+const _dec = document.createElement('textarea');
+function clean(s){ if(s==null) return s; s = String(s); if(!/[<&]/.test(s)) return s; _dec.innerHTML = s.replace(/<[^>]+>/g,''); return _dec.value; }
+function paper(o){
+  const p = Object.assign({doi:null, oa:null, s2:null, arxiv:null, title:'(untitled)', year:null, authors:[], venue:'', cites:0, refsCount:null, abstract:null, oaRefs:null, type:null, lang:null, isOA:null, oaUrl:null}, o);
+  if(!p.arxiv && p.doi){ const m = /^10\.48550\/arxiv\.(.+)$/i.exec(p.doi); if(m) p.arxiv = m[1]; }
+  return p;
+}
+const normTitle = t => String(t||'').toLowerCase().replace(/[^a-z0-9]+/g,' ').trim();
+function fetchFilters(){
+  return { yearFrom:int(settings.yearFrom,0), yearTo:int(settings.yearTo,0), minCites:int(settings.minCitesFetch,0,0),
+    types:Array.isArray(settings.types)?settings.types:[], oaOnly:!!settings.oaOnly, lang:String(settings.lang||'').trim().toLowerCase() };
+}
+function passes(p, F){
+  if(F.yearFrom && p.year && p.year < F.yearFrom) return false;
+  if(F.yearTo && p.year && p.year > F.yearTo) return false;
+  if(F.minCites && (p.cites||0) < F.minCites) return false;
+  if(F.types.length && p.type && !F.types.includes(p.type)) return false;
+  if(F.oaOnly && p.isOA === false) return false;
+  if(F.lang && p.lang && p.lang.toLowerCase() !== F.lang) return false;
+  return true;
+}
+function shuffle(a){ for(let i=a.length-1;i>0;i--){ const j = Math.floor(Math.random()*(i+1)); [a[i],a[j]] = [a[j],a[i]]; } return a; }
+function rankList(list, n){
+  const F = fetchFilters(), r = settings.rankBy;
+  let l = list.filter(p=>passes(p, F));
+  if(r==='newest') l.sort((a,b)=>(b.year||0)-(a.year||0) || b.cites-a.cites);
+  else if(r==='oldest') l.sort((a,b)=>(a.year||9999)-(b.year||9999) || b.cites-a.cites);
+  else if(r==='random') shuffle(l);
+  else l.sort((a,b)=>b.cites-a.cites);
+  return l.slice(0, n);
+}
+const canonType = {
+  oa: t => !t ? null : ['article','review','preprint','book','book-chapter','dataset','dissertation'].includes(t) ? t : 'other',
+  cr: t => !t ? null : /journal-article|proceedings-article|proceedings/.test(t) ? 'article' : t==='posted-content' ? 'preprint' : /^book$|monograph|edited-book|reference-book/.test(t) ? 'book' : /book-chapter|book-section|book-part/.test(t) ? 'book-chapter' : t==='dataset' ? 'dataset' : t==='dissertation' ? 'dissertation' : 'other',
+  s2: x => { const t = x.publicationTypes || []; if(t.includes('Review')) return 'review'; if(t.includes('Book')) return 'book'; if(t.includes('BookSection')) return 'book-chapter'; if(t.includes('Dataset')) return 'dataset';
+    if(t.includes('JournalArticle') || t.includes('Conference')) return 'article'; if(x.externalIds && x.externalIds.ArXiv) return 'preprint'; return t.length ? 'other' : null; },
+};
+
+/* =====================================================================
+   SOURCE: OpenAlex
+   ===================================================================== */
+const OA = (()=>{
+  const B = 'https://api.openalex.org';
+  const SEL = 'id,doi,display_name,publication_year,cited_by_count,referenced_works_count,authorships,primary_location,referenced_works,type,language,open_access';
+  const sid = u => u ? String(u).split('/').pop() : null;
+  const k = path => settings.oaKey ? (path.includes('?')?'&':'?')+'api_key='+encodeURIComponent(settings.oaKey) : '';
+  const get = path => getJSON('openalex', B+path+k(path), {cacheKey: path});
+  const norm = w => paper({
+    oa: sid(w.id), doi: normDoi(w.doi), title: clean(w.display_name) || '(untitled)', year: w.publication_year,
+    authors: (w.authorships||[]).map(a=>a.author && a.author.display_name).filter(Boolean),
+    venue: (w.primary_location && w.primary_location.source && w.primary_location.source.display_name) || '',
+    cites: w.cited_by_count||0, refsCount: w.referenced_works_count, oaRefs: (w.referenced_works||[]).map(sid),
+    type: canonType.oa(w.type), lang: w.language || null,
+    isOA: w.open_access ? !!w.open_access.is_oa : null, oaUrl: (w.open_access && w.open_access.oa_url) || null,
+  });
+  function filters(extra, F){
+    const f = extra ? [extra] : [];
+    if(!F) return f.join(',');
+    if(F.yearFrom) f.push('from_publication_date:'+F.yearFrom+'-01-01');
+    if(F.yearTo) f.push('to_publication_date:'+F.yearTo+'-12-31');
+    if(F.minCites>0) f.push('cited_by_count:>'+(F.minCites-1));
+    if(F.oaOnly) f.push('is_oa:true');
+    if(F.types && F.types.length) f.push('type:'+F.types.join('|'));
+    if(F.lang) f.push('language:'+F.lang);
+    return f.join(',');
+  }
+  async function resolve(p){
+    if(p.oa && p.oaRefs) return p;
+    let w = null;
+    if(p.oa) w = await get(`/works/${p.oa}?select=${SEL}`);
+    else if(p.doi) w = await get(`/works/doi:${encodeURIComponent(p.doi)}?select=${SEL}`);
+    else throw new SourceError('openalex', 'No DOI/OpenAlex ID to look up');
+    if(!w) throw new SourceError('openalex', 'Not found in OpenAlex');
+    return merge(p, norm(w));
+  }
+  async function batch(ids, F){
+    const out = [];
+    for(let i=0;i<ids.length;i+=100){
+      const chunk = ids.slice(i,i+100);
+      const j = await get(`/works?filter=${filters('openalex:'+chunk.join('|'), F)}&per_page=100&select=${SEL}`);
+      (j && j.results || []).forEach(w=>out.push(norm(w)));
+    }
+    return out;
+  }
+  // OpenAlex sometimes keeps a preprint and its published version as separate records; only one may carry references/citations.
+  async function versions(p){
+    if(p.oaAlt) return p.oaAltList || [];
+    const q = normTitle(p.title);
+    if(q.length < 12){ p.oaAlt = []; return []; }
+    const j = await get(`/works?filter=title.search:${encodeURIComponent(q)}&per_page=10&select=${SEL}`);
+    const vs = (j&&j.results||[]).map(norm).filter(w=>w.oa!==p.oa && normTitle(w.title)===q);
+    p.oaAlt = vs.map(v=>v.oa); p.oaAltList = vs;
+    return vs;
+  }
+  async function withVersions(p){
+    if(p.level!==0) return [];
+    try{ const vs = await versions(p); vs.forEach(v=>{ p.cites = Math.max(p.cites||0, v.cites||0); if(!p.refsCount) p.refsCount = v.refsCount; }); return vs; }
+    catch(e){ return []; }
+  }
+  const SORT = {cites:'cited_by_count:desc', newest:'publication_date:desc', oldest:'publication_date:asc'};
+  return {
+    id:'openalex', norm, batch,
+    async search(q, F, yr){
+      const f = []; if(yr.from) f.push('from_publication_date:'+yr.from+'-01-01'); if(yr.to) f.push('to_publication_date:'+yr.to+'-12-31');
+      const extra = filters(f.join(','), F);
+      const j = await get(`/works?search=${encodeURIComponent(q)}${extra?'&filter='+extra:''}&per_page=${Math.min(100,yr.n)}&select=${SEL}`);
+      return (j&&j.results||[]).map(norm);
+    },
+    async lookup(ids){
+      const path = ids.oa ? `/works/${ids.oa}` : ids.doi ? `/works/doi:${encodeURIComponent(ids.doi)}` : ids.pmid ? `/works/pmid:${ids.pmid}` : null;
+      if(!path) return null;
+      const w = await get(path+`?select=${SEL}`); return w ? [norm(w)] : [];
+    },
+    async refs(p, n){
+      p = await resolve(p);
+      let ids = p.oaRefs || [];
+      (await withVersions(p)).forEach(v=>{ ids = ids.concat(v.oaRefs||[]); });
+      ids = [...new Set(ids)]; p.oaRefs = ids;
+      const list = await batch(ids, fetchFilters()); return {p, list: rankList(list, n)};
+    },
+    async citedBy(p, n){
+      p = await resolve(p);
+      const ids = [p.oa, ...(await withVersions(p)).filter(v=>v.cites).map(v=>v.oa)];
+      if(!p.cites) return {p, list:[]};
+      const r = settings.rankBy, f = filters('cites:'+ids.join('|'), fetchFilters());
+      const order = r==='random' ? `&sample=${Math.min(n,100)}&seed=${Math.floor(Math.random()*1e6)}` : `&sort=${SORT[r]||SORT.cites}`;
+      const j = await get(`/works?filter=${f}${order}&per_page=${Math.min(100,n)}&select=${SEL}`);
+      return {p, list: rankList((j&&j.results||[]).map(norm), n)};
+    },
+    async citingAny(oaIds){
+      const j = await get(`/works?filter=cites:${oaIds.slice(0,100).join('|')}&sort=cited_by_count:desc&per_page=100&select=${SEL}`);
+      return (j&&j.results||[]).map(norm);
+    },
+    async abstract(p){
+      p = await resolve(p); const w = await get(`/works/${p.oa}?select=abstract_inverted_index`);
+      const inv = w && w.abstract_inverted_index; if(!inv) return {text:null, oaUrl:p.oaUrl};
+      const words = []; for(const [word, pos] of Object.entries(inv)) pos.forEach(i=>words[i]=word);
+      return {text:words.join(' '), oaUrl:p.oaUrl};
+    },
+    async coverage(p){
+      const w = p.oa ? await get(`/works/${p.oa}?select=${SEL}`) : p.doi ? await get(`/works/doi:${encodeURIComponent(p.doi)}?select=${SEL}`) : null;
+      if(!w) return {found:false};
+      const me = norm(w); me.level = 0; me.title = me.title || p.title;
+      let vs = []; try{ vs = await versions(me); }catch(e){}
+      return {found:true, refs:w.referenced_works_count||0, cites:w.cited_by_count||0, note: vs.length ? `${vs.length} other version(s): ${vs.map(v=>`${v.refsCount||0} refs / ${v.cites} cites`).join('; ')}` : (me.type==='preprint' ? 'preprint record' : '')};
+    },
+    can: p => !!(p.oa || p.doi)
+  };
+})();
+
+/* =====================================================================
+   SOURCE: Semantic Scholar
+   ===================================================================== */
+const S2 = (()=>{
+  const B = 'https://api.semanticscholar.org/graph/v1';
+  const F = 'paperId,externalIds,title,year,venue,authors,citationCount,referenceCount,publicationTypes,isOpenAccess';
+  const h = () => settings.s2Key ? {'x-api-key': settings.s2Key} : {};
+  const get = path => getJSON('s2', B+path, {headers:h()});
+  const norm = x => paper({ s2:x.paperId, doi:normDoi(x.externalIds && x.externalIds.DOI), arxiv:(x.externalIds && x.externalIds.ArXiv) || null, title:clean(x.title)||'(untitled)', year:x.year,
+    authors:(x.authors||[]).map(a=>a.name), venue:x.venue||'', cites:x.citationCount||0, refsCount:x.referenceCount,
+    type:canonType.s2(x), isOA: x.isOpenAccess==null ? null : !!x.isOpenAccess });
+  const pid = p => p.s2 || (p.arxiv ? 'ARXIV:'+p.arxiv : null) || (p.doi ? 'DOI:'+p.doi : null);
+  function need(p){ const id = pid(p); if(!id) throw new SourceError('s2','No Semantic Scholar ID/DOI'); return encodeURIComponent(id); }
+  return {
+    id:'s2',
+    async search(q, Fl, yr){
+      let extra = '';
+      const yf = yr.from || (Fl && Fl.yearFrom) || '', yt = yr.to || (Fl && Fl.yearTo) || '';
+      if(yf || yt) extra += `&year=${yf}-${yt}`;
+      if(Fl && Fl.minCites) extra += `&minCitationCount=${Fl.minCites}`;
+      if(Fl && Fl.oaOnly) extra += '&openAccessPdf';
+      const j = await get(`/paper/search?query=${encodeURIComponent(q)}${extra}&limit=${Math.min(100,yr.n)}&fields=${F}`);
+      return (j&&j.data||[]).map(norm);
+    },
+    async lookup(ids){
+      const id = ids.s2 || (ids.arxiv ? 'ARXIV:'+ids.arxiv : ids.doi ? 'DOI:'+ids.doi : ids.pmid ? 'PMID:'+ids.pmid : null);
+      if(!id) return null;
+      const x = await get(`/paper/${encodeURIComponent(id)}?fields=${F}`); return x ? [norm(x)] : [];
+    },
+    async refs(p, n){ const j = await get(`/paper/${need(p)}/references?fields=${F}&limit=1000`);
+      const all = (j&&j.data||[]).map(d=>d.citedPaper).filter(x=>x&&x.paperId).map(norm);
+      p.refsCount = Math.max(p.refsCount||0, (j&&j.data||[]).length);
+      return {p, list: rankList(all, n)}; },
+    async citedBy(p, n){
+      const scan = int(settings.s2CiteScan, 1000, 100, 9000), all = [];
+      for(let off=0; off<scan; off+=1000){
+        const j = await get(`/paper/${need(p)}/citations?fields=${F}&limit=${Math.min(1000, scan-off)}&offset=${off}`);
+        const d = (j&&j.data)||[]; all.push(...d.map(x=>x.citingPaper).filter(x=>x&&x.paperId).map(norm));
+        if(!j || j.next==null || d.length===0) break;
+      }
+      p.cites = Math.max(p.cites||0, all.length);
+      return {p, list: rankList(all, n)};
+    },
+    async abstract(p){ const x = await get(`/paper/${need(p)}?fields=abstract,openAccessPdf`);
+      return {text: x && x.abstract, oaUrl: x && x.openAccessPdf && x.openAccessPdf.url || null}; },
+    async coverage(p){ const x = await get(`/paper/${need(p)}?fields=referenceCount,citationCount`); return x ? {found:true, refs:x.referenceCount||0, cites:x.citationCount||0} : {found:false}; },
+    can: p => !!(p.s2 || p.arxiv || p.doi)
+  };
+})();
+
+/* =====================================================================
+   SOURCE: OpenCitations + Crossref (keyless)
+   ===================================================================== */
+const OC = (()=>{
+  const CR = 'https://api.crossref.org', OCI = 'https://api.opencitations.net/index/v2';
+  const SEL = 'DOI,title,author,issued,container-title,is-referenced-by-count,references-count,type';
+  const cr = path => getJSON('oc', CR+path, {queue:'crossref'});
+  const oc = path => getJSON('oc', OCI+path, {queue:'oc'});
+  const norm = x => paper({ doi:normDoi(x.DOI), title:clean(x.title&&x.title[0])||'(untitled)',
+    year: x.issued && x.issued['date-parts'] && x.issued['date-parts'][0] && x.issued['date-parts'][0][0] || null,
+    authors:(x.author||[]).map(a=>[a.given,a.family].filter(Boolean).join(' ')||a.name).filter(Boolean),
+    venue:clean(x['container-title']&&x['container-title'][0])||'', cites:x['is-referenced-by-count']||0, refsCount:x['references-count'],
+    type:canonType.cr(x.type), lang:x.language||null });
+  async function meta(dois){
+    const out = [];
+    for(let i=0;i<dois.length;i+=40){
+      if(cancelFlag) break;
+      const chunk = dois.slice(i,i+40);
+      const j = await cr(`/works?filter=${chunk.map(d=>'doi:'+encodeURIComponent(d)).join(',')}&rows=40&select=${SEL}`);
+      (j&&j.message&&j.message.items||[]).forEach(x=>out.push(norm(x)));
+    }
+    return out;
+  }
+  const doisFrom = (arr, field) => [...new Set((arr||[]).map(r=>{ const m = /doi:(\S+)/.exec(r[field]||''); return m && normDoi(m[1]); }).filter(Boolean))];
+  function need(p){ if(!p.doi) throw new SourceError('oc','OpenCitations needs a DOI'); return encodeURIComponent(p.doi); }
+  const tok = s => new Set(String(s).toLowerCase().replace(/[^a-z0-9 ]/g,' ').split(/\s+/).filter(w=>w.length>2));
+  return {
+    id:'oc',
+    async search(q, F, yr){
+      const f = []; const yf = yr.from || (F && F.yearFrom), yt = yr.to || (F && F.yearTo);
+      if(yf) f.push('from-pub-date:'+yf); if(yt) f.push('until-pub-date:'+yt);
+      const j = await cr(`/works?query.bibliographic=${encodeURIComponent(q)}${f.length?'&filter='+f.join(','):''}&rows=${Math.min(100, yr.n*2)}&select=${SEL}`);
+      const qt = tok(q);
+      const sim = t => { const tt = tok(t); let inter=0; qt.forEach(w=>{ if(tt.has(w)) inter++; }); return inter/Math.max(1, new Set([...qt,...tt]).size); };
+      return (j&&j.message&&j.message.items||[]).map(norm).filter(p=>!F || passes(p,F))
+        .map(p=>({p, s: sim(p.title)*3 + Math.log10(p.cites+1)*0.25})).sort((a,b)=>b.s-a.s).slice(0,yr.n).map(x=>x.p);
+    },
+    async lookup(ids){ if(!ids.doi) return null; const j = await cr(`/works/${encodeURIComponent(ids.doi)}`); return j&&j.message ? [norm(j.message)] : []; },
+    async refs(p, n){
+      const r = await oc(`/references/doi:${need(p)}`);
+      const list = await meta(doisFrom(r, 'cited').slice(0, int(settings.ocRefMax,400,10,5000)));
+      return {p, list: rankList(list, n)};
+    },
+    async citedBy(p, n){
+      const c = await oc(`/citation-count/doi:${need(p)}`);
+      const count = +(c && c[0] && c[0].count || 0), cap = int(settings.ocCiteCap,4000,10,200000);
+      if(!count) return {p, list:[]};
+      if(count > cap) throw new SourceError('oc', `OpenCitations fallback skips cited-by lists above ${cap.toLocaleString()} (this paper has ${count.toLocaleString()}; raise the cap in Settings → Sources)`);
+      const r = await oc(`/citations/doi:${need(p)}`);
+      const sorted = (r||[]).slice().sort((a,b)=>String(b.creation).localeCompare(String(a.creation)));
+      const list = await meta(doisFrom(sorted, 'citing').slice(0, int(settings.ocCiterSample,200,10,5000)));
+      return {p, list: rankList(list, n)};
+    },
+    async abstract(p){ const j = await cr(`/works/${need(p)}`); const a = j&&j.message&&j.message.abstract;
+      return {text: a ? a.replace(/<[^>]+>/g,' ').replace(/\s+/g,' ').trim() : null, oaUrl:null}; },
+    async coverage(p){
+      if(!p.doi) return {found:false, note:'needs a DOI'};
+      const j = await cr(`/works/${encodeURIComponent(p.doi)}`);
+      const c = await oc(`/citation-count/doi:${encodeURIComponent(p.doi)}`);
+      const cites = +(c && c[0] && c[0].count || 0);
+      if(!j || !j.message) return {found: cites>0, refs:0, cites, note: p.arxiv ? 'arXiv DOIs are not registered with Crossref' : 'DOI not in Crossref'};
+      return {found:true, refs:j.message['references-count']||0, cites:Math.max(cites, j.message['is-referenced-by-count']||0)};
+    },
+    can: p => !!p.doi
+  };
+})();
+
+const SOURCES = {openalex:OA, s2:S2, oc:OC};
+let lastSource = null;
+function sourceOrder(){ return settings.source === 'auto' ? settings.order.filter(s=>settings.enabled[s]) : [settings.source]; }
+function listKey(p){ return p.doi ? 'd:'+p.doi : p.arxiv ? 'a:'+p.arxiv.toLowerCase() : 't:'+normTitle(p.title)+'|'+(p.year||''); }
+function mergeLists(acc, r, n){
+  if(!acc) acc = {p:r.p, list:[], map:new Map()};
+  for(const q of r.list){ const k = listKey(q); const ex = acc.map.get(k); if(ex) merge(ex, q); else { acc.map.set(k, q); acc.list.push(q); } }
+  acc.list = rankList(acc.list, Math.max(n, acc.list.length));
+  return acc;
+}
+async function call(op, p, ...args){
+  const order = sourceOrder();
+  const listOp = op==='refs' || op==='citedBy', isSeed = !!p && p.level===0;
+  const fb = settings.emptyFallback || 'seeds';
+  const tryNextOnEmpty = listOp && (fb==='all' || (fb==='seeds' && isSeed));
+  const combine = listOp && isSeed && !!settings.combineSeeds && settings.source==='auto';
+  let lastErr = null, firstEmpty = null, merged = null; const limited = [];
+  const attempt = async s => {
+    const r = await SOURCES[s][op](...(p ? [p, ...args] : args));
+    if(op==='lookup' && (!r || !r.length)){ lastErr = new SourceError(s, 'Not found'); return null; }
+    if(listOp){
+      if(combine){ merged = mergeLists(merged, r, args[0]); if(r.list.length) lastSource = s; return null; }
+      if(!r.list.length && tryNextOnEmpty){ if(!firstEmpty) firstEmpty = {r, s}; return null; }
+    }
+    lastSource = s; showSource(); return {r};
+  };
+  for(const s of order){
+    const src = SOURCES[s];
+    if(!src[op]) continue;
+    if(p && !src.can(p)){ lastErr = lastErr || new SourceError(s, `${NAMES[s]} can't identify this paper`); continue; }
+    if(settings.source==='auto' && (cooldown[s]||0) > Date.now()){ lastErr = new SourceError(s, `${NAMES[s]} rate-limited`, true); limited.push(s); continue; }
+    try{ const out = await attempt(s); if(out) return out.r; }
+    catch(e){ lastErr = e; if(cancelFlag) throw e; if(e.rateLimited) limited.push(s); }
+  }
+  // Second chance for seeds and searches: wait out a rate limit instead of giving up.
+  const haveData = merged && merged.list.length;
+  if(settings.source==='auto' && (isSeed || !p) && limited.length && !haveData && !cancelFlag){
+    for(const s of [...new Set(limited)]){
+      if(p && !SOURCES[s].can(p)) continue;
+      const wait = Math.min(int(settings.maxWait,90,1,600)*1000, Math.max(1500, (cooldown[s]||0)-Date.now()+500));
+      setStatus(`${NAMES[s]} is rate-limiting — waiting ${Math.ceil(wait/1000)} s to try again (add a free API key in Settings to avoid this)…`);
+      await sleep(wait); delete cooldown[s];
+      if(cancelFlag) break;
+      try{ const out = await attempt(s); if(out) return out.r; if(merged && merged.list.length) break; }
+      catch(e){ lastErr = e; }
+    }
+  }
+  if(merged){ showSource(); return {p:merged.p, list:rankList(merged.list, args[0])}; }
+  if(firstEmpty){ lastSource = firstEmpty.s; showSource(); return firstEmpty.r; }
+  throw lastErr || new Error('No source available');
+}
+</script>
+<script>
+"use strict";
+/* =====================================================================
+   GRAPH MODEL
+   ===================================================================== */
+let G = null;
+const kOf = x => (x && x.key) || x;
+function newGraph(){ return {nodes:new Map(), edges:new Map(), byDoi:new Map(), byOa:new Map(), byS2:new Map(), byArxiv:new Map(), roots:new Set(), simEdges:[], ver:0, M:null}; }
+function keyOf(p){ return p.doi ? 'doi:'+p.doi : p.arxiv ? 'arxiv:'+p.arxiv.toLowerCase() : p.oa ? 'oa:'+p.oa : 's2:'+p.s2; }
+function merge(a, b){
+  for(const k of Object.keys(b)){
+    const v = b[k];
+    if(v==null || v==='' || (Array.isArray(v) && !v.length && a[k])) continue;
+    if(k==='cites' || k==='refsCount') a[k] = Math.max(a[k]||0, v);
+    else if(a[k]==null || a[k]==='' || a[k]==='(untitled)' || (Array.isArray(a[k]) && !a[k].length)) a[k] = v;
+  }
+  return a;
+}
+function findNode(p){
+  const k = (p.doi && G.byDoi.get(p.doi)) || (p.arxiv && G.byArxiv.get(p.arxiv.toLowerCase())) || (p.oa && G.byOa.get(p.oa)) || (p.s2 && G.byS2.get(p.s2));
+  return k ? G.nodes.get(k) : null;
+}
+function index(n){ if(n.doi) G.byDoi.set(n.doi, n.key); if(n.arxiv) G.byArxiv.set(n.arxiv.toLowerCase(), n.key); if(n.oa) G.byOa.set(n.oa, n.key); if(n.s2) G.byS2.set(n.s2, n.key); (n.oaAlt||[]).forEach(id=>G.byOa.set(id, n.key)); }
+function addNode(p, level, parent, op){
+  let n = findNode(p);
+  if(n){ merge(n, p); index(n); if(level < n.level){ n.level = level; } return {n, isNew:false}; }
+  const side = !parent ? 0 : parent.side === 0 ? (op==='refs' ? 1 : -1) : parent.side;
+  n = Object.assign(paper({}), p, {key:keyOf(p), level, side, expanded:false, hidden:false, pinned:false});
+  if(parent && parent.x!=null){ n.x = parent.x + (Math.random()-.5)*60; n.y = parent.y + (Math.random()-.5)*60; }
+  G.nodes.set(n.key, n); index(n); G.ver++;
+  return {n, isNew:true};
+}
+function addEdge(citing, cited, cross){
+  if(!citing || !cited || citing.key === cited.key) return;
+  const k = citing.key+'>'+cited.key;
+  if(!G.edges.has(k)){ G.edges.set(k, {key:k, source:citing.key, target:cited.key, cross:!!cross}); G.ver++; }
+}
+function crossEdges(){
+  for(const n of G.nodes.values()){
+    (n.oaRefs||[]).forEach(id=>{ const k = G.byOa.get(id); if(k) addEdge(n, G.nodes.get(k), true); });
+  }
+}
+
+/* =====================================================================
+   BUILDING / EXPANDING
+   ===================================================================== */
+function fetchOpts(){
+  return { depth:int(settings.depth,2,1,5), refs:!!settings.useRefs, cites:!!settings.useCites,
+    kR:int(settings.kRefs,12,1,200), kC:int(settings.kCites,12,1,200), max:int(settings.maxNodes,150,5,3000), decay:flt(settings.decay,1,0.1,1) };
+}
+async function expandNode(n, kR, kC, o, allowOver){
+  const errs = [];
+  const jobs = [];
+  if(o.refs && kR>0) jobs.push(['refs', kR]);
+  if(o.cites && kC>0) jobs.push(['citedBy', kC]);
+  for(const [op, k] of jobs){
+    if(cancelFlag) break;
+    try{
+      const {p, list} = await call(op, n, k);
+      merge(n, p); index(n);
+      for(const q of list){
+        if(!allowOver && G.nodes.size >= o.max && !findNode(q)) continue;
+        const {n:m} = addNode(q, n.level+1, n, op);
+        op==='refs' ? addEdge(n, m) : addEdge(m, n);
+      }
+    }catch(e){ errs.push(e); }
+  }
+  n.expanded = true; G.ver++;
+  return errs;
+}
+async function runLevels(frontier, levels, o){
+  let errors = [];
+  for(let step=0; step<levels && frontier.length && !cancelFlag; step++){
+    const remaining = o.max - G.nodes.size;
+    if(remaining <= 0) break;
+    const lvl = (frontier[0].level||0) + 1;
+    const dec = Math.pow(o.decay, lvl-1);
+    const per = (o.refs?o.kR:0) + (o.cites?o.kC:0);
+    const scale = Math.min(1, remaining / Math.max(1, frontier.length * per * dec)) * dec;
+    const kR = Math.max(1, Math.round(o.kR*scale)), kC = Math.max(1, Math.round(o.kC*scale));
+    const before = new Set(G.nodes.keys());
+    let done = 0;
+    const items = frontier.slice();
+    await pool(items, int(settings.parallel,4,1,12), async n=>{
+      setStatus(`Depth ${lvl} · expanding ${++done}/${items.length} · ${G.nodes.size} papers · ${netCalls} API calls`);
+      errors.push(...await expandNode(n, kR, kC, o, false));
+      scheduleRender();
+    });
+    frontier = [...G.nodes.values()].filter(n=>!before.has(n.key) && !n.hidden).sort((a,b)=>b.cites-a.cites);
+  }
+  return errors;
+}
+async function buildGraph(roots){
+  roots = (Array.isArray(roots) ? roots : [roots]).filter(Boolean);
+  const o = fetchOpts();
+  if(!roots.length) return;
+  if(!o.refs && !o.cites){ setStatus('Tick “References” and/or “Cited by”.'); return; }
+  G = newGraph(); cancelFlag = false; netCalls = 0; selected = null; hl = null; pathState = {a:null, b:null, nodes:null, edges:null};
+  roots.forEach((r,i)=>{
+    const {n} = addNode(paper(Object.assign({}, r, {x:undefined, y:undefined, vx:undefined, vy:undefined, fx:undefined, fy:undefined, key:undefined})), 0, null);
+    G.roots.add(n.key); const a = 2*Math.PI*i/roots.length; n.x = roots.length>1 ? 120*Math.cos(a) : 0; n.y = roots.length>1 ? 120*Math.sin(a) : 0;
+  });
+  resetView(); render(); showTab('details'); showDetails(G.nodes.get([...G.roots][0]), true);
+  busy(true);
+  const frontier = [...G.roots].map(k=>G.nodes.get(k));
+  const errors = await runLevels(frontier, o.depth, o);
+  crossEdges();
+  finish(errors);
+}
+async function growLevel(){
+  if(!G) return;
+  const o = fetchOpts();
+  if(G.nodes.size >= o.max){ setStatus(`Graph already has ${G.nodes.size} papers. Raise “Max nodes” to grow it further.`); return; }
+  const maxLvl = d3.max([...G.nodes.values()].filter(n=>!n.hidden), n=>n.level);
+  const frontier = [...G.nodes.values()].filter(n=>!n.expanded && !n.hidden && n.level===maxLvl).sort((a,b)=>b.cites-a.cites);
+  if(!frontier.length){ setStatus('Nothing left to expand.'); return; }
+  cancelFlag = false; netCalls = 0; busy(true);
+  const errors = await runLevels(frontier, 1, o);
+  crossEdges();
+  finish(errors);
+}
+async function expandOne(n){
+  if(!G || !n) return;
+  const o = fetchOpts(); cancelFlag = false; busy(true); netCalls = 0;
+  setStatus(`Expanding “${trunc(n.title,50)}”…`);
+  const errs = await expandNode(n, o.kR, o.kC, o, true);
+  crossEdges();
+  finish(errs, n);
+}
+function finish(errors, sel){
+  render(); busy(false); renderList(); renderAnalysisIfOpen();
+  const msg = `${G.nodes.size} papers, ${G.edges.size} citation links · ${netCalls} API calls`;
+  if(!cancelFlag && G.nodes.size <= G.roots.size){
+    const lim = errors.some(e=>e.rateLimited), r = G.nodes.get([...G.roots][0]);
+    setStatus(`No references or citations found for this paper${lim ? ' — some sources were rate-limited' : ''}. `
+      + (r && (r.arxiv || r.type==='preprint') ? 'New arXiv preprints often have no reference data in OpenAlex/Crossref; Semantic Scholar usually does. ' : '')
+      + (settings.s2Key ? '' : 'Add a free Semantic Scholar API key in Settings → Sources, ') + 'then rebuild. Use “Check sources” in the details panel to see what each database has.');
+    render(); busy(false); renderList(); if(r) select(r); return;
+  }
+  setStatus(cancelFlag ? 'Stopped. '+msg : errors.length && G.nodes.size<=G.roots.size ? 'Could not fetch citations: '+errors[0].message+keyHint(errors)
+    : msg + (errors.length ? ` · ${errors.length} lookup${errors.length>1?'s':''} failed (${errors[0].message})`+keyHint(errors) : ''));
+  const s = sel || (selected && G.nodes.get(selected));
+  if(s) select(s); else if(G.roots.size && !$('pane-details').hidden) showDetails(G.nodes.get([...G.roots][0]), true);
+}
+const keyHint = errs => errs.some(e=>e.rateLimited) ? ' — the free APIs are throttling; add a free API key in Settings or try again shortly.' : '';
+async function pool(items, n, fn){
+  let i = 0;
+  await Promise.all(Array.from({length:Math.min(n, items.length)}, async()=>{ while(i<items.length && !cancelFlag) await fn(items[i++]); }));
+}
+function addPaperToGraph(p){
+  if(!G) return;
+  const {n, isNew} = addNode(p, 1, null);
+  if(isNew){ n.side = 0; const r = G.nodes.get([...G.roots][0]); if(r && r.x!=null){ n.x = r.x + (Math.random()-.5)*200; n.y = r.y + (Math.random()-.5)*200; } }
+  crossEdges(); render(); renderList();
+  return n;
+}
+
+/* =====================================================================
+   METRICS: degree, PageRank, similarity, clusters
+   ===================================================================== */
+function ensureMetrics(){
+  const sig = G.ver+'|'+settings.mode+'|'+settings.simK+'|'+settings.simMin+'|'+settings.wCouple+'|'+settings.wCocite+'|'+settings.wDirect+'|'+settings.crossLinks;
+  if(G.M && G.M.sig === sig) return G.M;
+  const nodes = [...G.nodes.values()];
+  const edges = [...G.edges.values()].filter(e=>settings.crossLinks || !e.cross);
+  const M = {sig, inDeg:new Map(), outDeg:new Map(), pr:new Map(), simSeed:new Map(), cluster:new Map(), clusters:[], prRank:new Map()};
+  nodes.forEach(n=>{ M.inDeg.set(n.key,0); M.outDeg.set(n.key,0); });
+  edges.forEach(e=>{ const s=kOf(e.source), t=kOf(e.target); M.outDeg.set(s, M.outDeg.get(s)+1); M.inDeg.set(t, M.inDeg.get(t)+1); });
+  // PageRank (citing -> cited)
+  const N = nodes.length, idx = new Map(nodes.map((n,i)=>[n.key,i]));
+  let pr = new Float64Array(N).fill(1/N);
+  const outL = nodes.map(()=>[]); edges.forEach(e=>outL[idx.get(kOf(e.source))].push(idx.get(kOf(e.target))));
+  for(let it=0; it<40; it++){
+    const nx = new Float64Array(N).fill(0.15/N); let dangling = 0;
+    for(let i=0;i<N;i++){ if(outL[i].length){ const s = 0.85*pr[i]/outL[i].length; outL[i].forEach(j=>nx[j]+=s); } else dangling += pr[i]; }
+    const dd = 0.85*dangling/N; for(let i=0;i<N;i++) nx[i]+=dd; pr = nx;
+  }
+  nodes.forEach((n,i)=>M.pr.set(n.key, pr[i]));
+  [...nodes].sort((a,b)=>M.pr.get(b.key)-M.pr.get(a.key)).forEach((n,i)=>M.prRank.set(n.key, i+1));
+  // similarity
+  computeSimilarity(nodes, edges, idx, M);
+  // clusters over the active mode's edges
+  const cEdges = settings.mode==='similarity'
+    ? G.simEdges.map(e=>({a:idx.get(kOf(e.source)), b:idx.get(kOf(e.target)), w:e.w}))
+    : edges.map(e=>({a:idx.get(kOf(e.source)), b:idx.get(kOf(e.target)), w:1}));
+  const comm = louvain(N, cEdges.filter(e=>e.a!=null && e.b!=null));
+  const groups = new Map(); comm.forEach((c,i)=>{ if(!groups.has(c)) groups.set(c, []); groups.get(c).push(nodes[i]); });
+  const sorted = [...groups.values()].sort((a,b)=>b.length-a.length);
+  sorted.forEach((members, ci)=>{ members.forEach(n=>M.cluster.set(n.key, ci)); });
+  M.clusters = nameClusters(sorted, nodes);
+  G.M = M;
+  return M;
+}
+function computeSimilarity(nodes, edges, idx, M){
+  const N = nodes.length, tok = n => n.oa || n.key;
+  const refSets = nodes.map(n=>new Set(n.oaRefs||[]));
+  const citers = nodes.map(()=>new Set());
+  const outIn = nodes.map(()=>[]);
+  edges.forEach(e=>{ const s = idx.get(kOf(e.source)), t = idx.get(kOf(e.target)); if(s==null||t==null) return;
+    refSets[s].add(tok(nodes[t])); citers[t].add(s); outIn[s].push(t); });
+  const couple = new Map(), cocite = new Map(), pk = (i,j) => i<j ? i*N+j : j*N+i;
+  const inv = new Map();
+  refSets.forEach((S,i)=>S.forEach(t=>{ let a = inv.get(t); if(!a) inv.set(t, a=[]); a.push(i); }));
+  for(const arr of inv.values()){
+    if(arr.length<2 || arr.length>350) continue;
+    for(let x=0;x<arr.length;x++) for(let y=x+1;y<arr.length;y++){ const k = pk(arr[x],arr[y]); couple.set(k, (couple.get(k)||0)+1); }
+  }
+  outIn.forEach(arr=>{ if(arr.length<2 || arr.length>350) return;
+    for(let x=0;x<arr.length;x++) for(let y=x+1;y<arr.length;y++){ const k = pk(arr[x],arr[y]); cocite.set(k, (cocite.get(k)||0)+1); } });
+  const wC = flt(settings.wCouple,1,0,1), wK = flt(settings.wCocite,1,0,1), wD = flt(settings.wDirect,0.5,0,1), tot = (wC+wK+wD) || 1;
+  const direct = new Set(); edges.forEach(e=>{ const s = idx.get(kOf(e.source)), t = idx.get(kOf(e.target)); if(s!=null && t!=null) direct.add(pk(s,t)); });
+  const sims = new Map();
+  const keys = new Set([...couple.keys(), ...cocite.keys(), ...direct]);
+  for(const k of keys){
+    const i = Math.floor(k/N), j = k%N;
+    const c = couple.get(k)||0, q = cocite.get(k)||0;
+    const s = (wC * (c ? c/Math.sqrt(refSets[i].size*refSets[j].size) : 0) + wK * (q ? q/Math.sqrt(citers[i].size*citers[j].size) : 0) + wD * (direct.has(k) ? 0.35 : 0)) / tot;
+    if(s>0) sims.set(k, s);
+  }
+  // seed similarity
+  const rootIdx = [...G.roots].map(k=>idx.get(k)).filter(i=>i!=null);
+  nodes.forEach((n,i)=>{ let best = G.roots.has(n.key) ? 1 : 0; rootIdx.forEach(r=>{ if(r!==i){ const s = sims.get(pk(r,i)); if(s>best) best = s; } }); M.simSeed.set(n.key, best); });
+  // top-k sparse similarity edges
+  const K = int(settings.simK,4,1,30), minS = flt(settings.simMin,0.05,0,1);
+  const nb = nodes.map(()=>[]);
+  for(const [k,s] of sims){ if(s < minS) continue; const i = Math.floor(k/N), j = k%N; nb[i].push([j,s]); nb[j].push([i,s]); }
+  const out = new Map();
+  nb.forEach((arr,i)=>{ arr.sort((a,b)=>b[1]-a[1]).slice(0,K).forEach(([j,s])=>{ const a = Math.min(i,j), b = Math.max(i,j), key = 's:'+nodes[a].key+'|'+nodes[b].key; if(!out.has(key)) out.set(key, {key, source:nodes[a].key, target:nodes[b].key, w:s}); }); });
+  G.simEdges = [...out.values()];
+  M.sims = sims; M.idx = idx; M.N = N;
+}
+function simBetween(a, b){ const M = G.M; if(!M || !M.sims) return 0; const i = M.idx.get(a), j = M.idx.get(b); if(i==null||j==null) return 0; return M.sims.get(i<j?i*M.N+j:j*M.N+i) || 0; }
+function louvain(n, edges){
+  let mapping = Array.from({length:n}, (_,i)=>i), curN = n, cur = edges.map(e=>({a:e.a, b:e.b, w:e.w}));
+  for(let level=0; level<8; level++){
+    const adj = Array.from({length:curN}, ()=>new Map()); const deg = new Float64Array(curN); let m2 = 0;
+    for(const {a,b,w} of cur){
+      if(a===b){ adj[a].set(a, (adj[a].get(a)||0)+w); deg[a]+=2*w; m2+=2*w; continue; }
+      adj[a].set(b, (adj[a].get(b)||0)+w); adj[b].set(a, (adj[b].get(a)||0)+w); deg[a]+=w; deg[b]+=w; m2+=2*w;
+    }
+    if(!m2) break;
+    const c = Array.from({length:curN}, (_,i)=>i), tot = Float64Array.from(deg);
+    let moved = true, any = false, iter = 0;
+    while(moved && iter<25){
+      moved = false; iter++;
+      for(let i=0;i<curN;i++){
+        const ci = c[i], ki = deg[i], wTo = new Map();
+        for(const [j,w] of adj[i]) if(j!==i) wTo.set(c[j], (wTo.get(c[j])||0)+w);
+        tot[ci] -= ki;
+        let best = ci, bestGain = (wTo.get(ci)||0) - tot[ci]*ki/m2;
+        for(const [cc,w] of wTo){ const g = w - tot[cc]*ki/m2; if(g > bestGain+1e-12){ bestGain = g; best = cc; } }
+        tot[best] += ki;
+        if(best!==ci){ c[i] = best; moved = true; any = true; }
+      }
+    }
+    if(!any) break;
+    const ids = new Map(); for(let i=0;i<curN;i++){ if(!ids.has(c[i])) ids.set(c[i], ids.size); c[i] = ids.get(c[i]); }
+    mapping = mapping.map(s=>c[s]);
+    const agg = new Map();
+    for(const {a,b,w} of cur){ const A = c[a], B = c[b], k = A<B ? A+','+B : B+','+A; agg.set(k, (agg.get(k)||0)+w); }
+    cur = [...agg].map(([k,w])=>{ const [A,B] = k.split(',').map(Number); return {a:A, b:B, w}; });
+    curN = ids.size;
+  }
+  return mapping;
+}
+const STOP = new Set('a an the of and or for in on to with by from at as is are be via using use based its their this that into over under between toward towards new study analysis approach method methods model models paper case data large small high low effect effects role two one three first non can not we our results learning'.split(' '));
+function titleWords(t){ return [...new Set(String(t).toLowerCase().replace(/[^a-z0-9\- ]/g,' ').split(/\s+/).filter(w=>w.length>2 && !STOP.has(w) && !/^\d+$/.test(w)))]; }
+function nameClusters(groups, nodes){
+  const df = new Map(); nodes.forEach(n=>titleWords(n.title).forEach(w=>df.set(w,(df.get(w)||0)+1)));
+  const N = nodes.length;
+  return groups.map((members, i)=>{
+    const tf = new Map(); members.forEach(n=>titleWords(n.title).forEach(w=>tf.set(w,(tf.get(w)||0)+1)));
+    const words = [...tf].filter(([w,c])=>c>=Math.min(2, members.length)).map(([w,c])=>[w, (c/members.length)*Math.log(1+N/df.get(w))]).sort((a,b)=>b[1]-a[1]).slice(0,3).map(x=>x[0]);
+    return {id:i, size:members.length, name: words.length ? words.join(' · ') : (members.length===1 ? trunc(members[0].title, 30) : 'cluster '+(i+1)), keys:members.map(n=>n.key)};
+  });
+}
+
+/* =====================================================================
+   PATH FINDING
+   ===================================================================== */
+let pathState = {a:null, b:null, nodes:null, edges:null, directed:false};
+function findPath(a, b, directed){
+  const adj = new Map(); const add = (x,y,e)=>{ if(!adj.has(x)) adj.set(x,[]); adj.get(x).push([y,e]); };
+  for(const e of G.edges.values()){
+    if(!settings.crossLinks && e.cross) continue;
+    const s = kOf(e.source), t = kOf(e.target);
+    if(G.nodes.get(s).hidden || G.nodes.get(t).hidden) continue;
+    add(s, t, e.key); if(!directed) add(t, s, e.key);
+  }
+  const bfs = (from, to) => {
+    const prev = new Map([[from, null]]); const q = [from];
+    while(q.length){ const x = q.shift(); if(x===to) break; for(const [y,ek] of (adj.get(x)||[])) if(!prev.has(y)){ prev.set(y, [x, ek]); q.push(y); } }
+    if(!prev.has(to)) return null;
+    const nodes = [], edges = []; let cur = to;
+    while(cur!=null){ nodes.unshift(cur); const p = prev.get(cur); if(p){ edges.push(p[1]); cur = p[0]; } else cur = null; }
+    return {nodes, edges};
+  };
+  return bfs(a, b) || (directed ? bfs(b, a) : null);
+}
+
+/* =====================================================================
+   PRIOR & DERIVATIVE WORKS
+   ===================================================================== */
+async function priorWorks(){
+  const counts = new Map();
+  const bump = (tok, who) => { let c = counts.get(tok); if(!c) counts.set(tok, c = new Set()); c.add(who); };
+  for(const n of G.nodes.values()){ if(n.hidden) continue; (n.oaRefs||[]).forEach(id=>bump('oa:'+id, n.key)); }
+  for(const e of G.edges.values()){ const t = G.nodes.get(kOf(e.target)); bump(t.oa ? 'oa:'+t.oa : t.key, kOf(e.source)); }
+  const top = [...counts].map(([tok, s])=>[tok, s.size]).filter(x=>x[1]>=2).sort((a,b)=>b[1]-a[1]).slice(0,25);
+  const res = [];
+  const missing = [];
+  for(const [tok, c] of top){
+    const nk = tok.startsWith('oa:') ? G.byOa.get(tok.slice(3)) : tok;
+    const n = nk && G.nodes.get(nk);
+    if(n) res.push({p:n, count:c, inGraph:true}); else { missing.push(tok.slice(3)); res.push({oa:tok.slice(3), count:c}); }
+  }
+  if(missing.length){
+    try{ const got = await OA.batch(missing, null); const by = new Map(got.map(p=>[p.oa, p])); res.forEach(r=>{ if(r.oa) r.p = by.get(r.oa); }); }
+    catch(e){ /* metadata unavailable: keep in-graph ones */ }
+  }
+  return res.filter(r=>r.p);
+}
+async function derivativeWorks(){
+  const M = ensureMetrics();
+  const graphOa = new Set([...G.nodes.values()].filter(n=>n.oa && !n.hidden).map(n=>n.oa));
+  const res = new Map();
+  for(const n of G.nodes.values()){
+    if(n.hidden) continue;
+    let c = 0; for(const id of (n.oaRefs||[])) if(graphOa.has(id)) c++;
+    const outs = M.outDeg.get(n.key) || 0;
+    c = Math.max(c, outs);
+    if(c>=2) res.set(n.key, {p:n, count:c, inGraph:true});
+  }
+  const top = [...G.nodes.values()].filter(n=>n.oa && !n.hidden).sort((a,b)=>b.cites-a.cites).slice(0,100).map(n=>n.oa);
+  if(top.length){
+    try{
+      const list = await OA.citingAny(top);
+      list.forEach(p=>{
+        const ex = findNode(p); if(ex) return;
+        const c = (p.oaRefs||[]).filter(id=>graphOa.has(id)).length;
+        if(c>=2) res.set('x:'+p.oa, {p, count:c});
+      });
+    }catch(e){ /* OpenAlex unavailable: in-graph only */ }
+  }
+  return [...res.values()].sort((a,b)=>b.count-a.count || b.p.cites-a.p.cites).slice(0,25);
+}
+</script>
+<script>
+"use strict";
+/* =====================================================================
+   RENDERING
+   ===================================================================== */
+const svg = d3.select('#graph');
+const defs = svg.append('defs');
+[['base','var(--edge)'],['out','var(--ref)'],['in','var(--cite)'],['path','var(--path)']].forEach(([t,c])=>defs.append('marker').attr('id','arr-'+t)
+  .attr('viewBox','0 -4 8 8').attr('refX',8).attr('refY',0).attr('markerWidth',6).attr('markerHeight',6).attr('orient','auto')
+  .append('path').attr('d','M0,-4L8,0L0,4').style('fill', c).style('fill-opacity', t==='base' ? 'var(--edge-op)' : 1));
+const zoomG = svg.append('g').attr('id','zoomG');
+const bgG = zoomG.append('g'), linkG = zoomG.append('g'), nodeG = zoomG.append('g');
+const axisG = svg.append('g').attr('id','axisOverlay');
+const zoom = d3.zoom().scaleExtent([0.05, 8]).on('zoom', e=>{ zoomG.attr('transform', e.transform); updateAxis(); });
+svg.call(zoom).on('dblclick.zoom', null);
+svg.on('click', e=>{ if(e.target === svg.node()){ hl = null; select(null); closePops(); } });
+const sim = d3.forceSimulation().alphaDecay(0.03)
+  .force('link', d3.forceLink().id(d=>d.key)).force('charge', d3.forceManyBody()).force('collide', d3.forceCollide())
+  .force('x', d3.forceX(0)).force('y', d3.forceY(0)).on('tick', ticked);
+let linkSel = linkG.selectAll('line'), nodeSel = nodeG.selectAll('g.node');
+let VIS = {nodes:[], links:[]}, colorOf = ()=>'#9aa3ad', legendInfo = null, yearX = d3.scaleLinear(), hl = null, selected = null;
+const NA = '#9aa3ad';
+const PAL = {viridis:d3.interpolateViridis, plasma:d3.interpolatePlasma, magma:d3.interpolateMagma, cividis:d3.interpolateCividis, turbo:d3.interpolateTurbo, blues:d3.interpolateBlues, spectral:d3.interpolateSpectral, warm:d3.interpolateWarm, cool:d3.interpolateCool};
+function seqFn(){
+  const name = settings.palette in PAL ? settings.palette : 'viridis', f = PAL[name];
+  const span = {turbo:[0.08,0.92], blues:[0.3,0.95], spectral:[0.02,0.98], warm:[0.05,0.95], cool:[0.05,0.95]}[name] || [0.92,0.1];
+  return t => { t = Math.max(0, Math.min(1, t)); if(settings.reversePalette) t = 1-t; return f(span[0]+(span[1]-span[0])*t); };
+}
+function visible(){
+  const s = settings, yf = int(s.vYearFrom,0), yt = int(s.vYearTo,0), md = s.vMaxDepth==='all' ? 99 : int(s.vMaxDepth,99), mc = int(s.vMinCites,0,0);
+  let nodes = [...G.nodes.values()].filter(n=>!n.hidden && (G.roots.has(n.key) ||
+    ((!yf || !n.year || n.year>=yf) && (!yt || !n.year || n.year<=yt) && n.level<=md && (n.cites||0)>=mc)));
+  const ks = new Set(nodes.map(n=>n.key));
+  const base = s.mode==='similarity' ? G.simEdges : [...G.edges.values()].filter(e=>s.crossLinks || !e.cross);
+  const links = base.filter(e=>ks.has(kOf(e.source)) && ks.has(kOf(e.target)));
+  if(s.hideIsolated){ const deg = new Set(); links.forEach(e=>{ deg.add(kOf(e.source)); deg.add(kOf(e.target)); }); nodes = nodes.filter(n=>deg.has(n.key) || G.roots.has(n.key)); }
+  return {nodes, links};
+}
+function computeSizes(nodes, M){
+  const by = settings.sizeBy, sc = flt(settings.sizeScale,1,0.2,4);
+  const fns = { cites:d=>Math.log10((d.cites||0)+1), refs:d=>Math.log10((d.refsCount||0)+1),
+    degree:d=>Math.sqrt((M.inDeg.get(d.key)||0)+(M.outDeg.get(d.key)||0)), indeg:d=>Math.sqrt(M.inDeg.get(d.key)||0),
+    pagerank:d=>Math.sqrt(M.pr.get(d.key)||0), simSeed:d=>M.simSeed.get(d.key)||0, uniform:()=>1 };
+  const val = fns[by] || fns.cites, mx = d3.max(nodes, val) || 1;
+  nodes.forEach(d=>{ d._r = by==='uniform' ? 7*sc : 3.5 + 15*sc*(val(d)/mx); if(G.roots.has(d.key)) d._r = Math.max(d._r, 7); });
+}
+function buildColor(nodes, M){
+  const by = settings.colorBy, seq = seqFn();
+  const SEQ = {
+    year:[d=>d.year, 'Publication year', v=>Math.round(v)],
+    cites:[d=>Math.log10((d.cites||0)+1), 'Citations', v=>Math.round(10**v-1).toLocaleString()],
+    pagerank:[d=>M.pr.get(d.key), 'PageRank in graph', v=>v.toExponential(1)],
+    simSeed:[d=>M.simSeed.get(d.key), 'Similarity to seed(s)', v=>v.toFixed(2)],
+  };
+  if(SEQ[by]){
+    const [get, title, f] = SEQ[by], vals = nodes.map(get).filter(v=>v!=null && !isNaN(v));
+    const lo = vals.length ? d3.min(vals) : 0; let hi = vals.length ? d3.max(vals) : 1; if(hi===lo) hi = lo+1;
+    colorOf = d => { const v = get(d); return v==null || isNaN(v) ? NA : seq((v-lo)/(hi-lo)); };
+    return {kind:'seq', title, lo:f(lo), hi:f(hi), stops:d3.range(0,1.001,0.1).map(seq)};
+  }
+  let get, title, label = v=>String(v), fixed = null, all = false;
+  if(by==='depth'){ get = d=>d.level; title = 'Depth'; label = v=>v===0 ? 'Seed' : 'Depth '+v; all = true;
+    const mx = d3.max(nodes, d=>d.level) || 1; fixed = v=>seq(v/mx); }
+  else if(by==='side'){ get = d=>G.roots.has(d.key) ? 'seed' : d.side>0 ? 'ref' : d.side<0 ? 'cite' : 'other'; title = 'Relation to seed'; all = true;
+    const m = {seed:'var(--accent)', ref:'var(--ref)', cite:'var(--cite)', other:NA}; fixed = v=>m[v];
+    label = v=>({seed:'Seed', ref:'Reference side (older)', cite:'Citing side (newer)', other:'Added manually'})[v]; }
+  else if(by==='cluster'){ get = d=>M.cluster.get(d.key); title = 'Cluster'; label = v=>(M.clusters[v] ? M.clusters[v].name : 'cluster'); }
+  else if(by==='venue'){ get = d=>d.venue || null; title = 'Venue'; }
+  else if(by==='author'){ get = d=>d.authors[0] || null; title = 'First author'; }
+  else if(by==='type'){ get = d=>d.type; title = 'Document type'; label = v=>(DOC_TYPES.find(t=>t[0]===v)||[0,v])[1]; }
+  else { get = d=>d.isOA==null ? null : d.isOA ? 'yes' : 'no'; title = 'Open access'; label = v=>v==='yes' ? 'Open access' : 'Not open access'; }
+  const counts = d3.rollups(nodes, v=>v.length, get).filter(([v])=>v!=null).sort((a,b)=>by==='depth' ? a[0]-b[0] : b[1]-a[1]);
+  const top = all ? counts : counts.filter(c=>by!=='cluster' || c[1]>1).slice(0,10);
+  const cmap = new Map(top.map(([v],i)=>[v, fixed ? fixed(v) : d3.schemeTableau10[i%10]]));
+  colorOf = d => { const v = get(d); return cmap.has(v) ? cmap.get(v) : NA; };
+  const items = top.map(([v,c])=>({label:label(v), color:cmap.get(v), count:c, keys:nodes.filter(d=>get(d)===v).map(d=>d.key)}));
+  const rest = nodes.filter(d=>!cmap.has(get(d)));
+  if(rest.length) items.push({label: by==='cluster' ? 'Singletons / small' : 'Other / unknown', color:NA, count:rest.length, keys:rest.map(d=>d.key)});
+  return {kind:'cat', title, items};
+}
+const labelText = (d, mode) => mode==='title' ? trunc(d.title, 48) : mode==='short' ? trunc(d.title.split(/\s+/).slice(0,5).join(' '), 40) : mode==='year' ? String(d.year||'') :
+  (d.authors[0] ? d.authors[0].split(' ').pop() : trunc(d.title, 18)) + (d.year ? ', '+d.year : '');
+let renderQueued = false;
+function scheduleRender(){ if(!renderQueued){ renderQueued = true; setTimeout(()=>{ renderQueued = false; render(); }, 400); } }
+function render(reheat=true){
+  if(!G) return;
+  $('empty').hidden = true; $('legend').hidden = false; $('toolbar').hidden = false;
+  const M = ensureMetrics();
+  VIS = visible();
+  const {nodes, links} = VIS;
+  computeSizes(nodes, M); legendInfo = buildColor(nodes, M);
+  const yrs = nodes.map(n=>n.year).filter(Boolean), W = Math.max(700, Math.min(4000, nodes.length*9));
+  yearX = d3.scaleLinear().domain([d3.min(yrs)||2000, Math.max((d3.max(yrs)||2020), (d3.min(yrs)||2000)+1)]).range([-W/2, W/2]);
+  const simMode = settings.mode==='similarity', ew = flt(settings.edgeWidth,1,0.2,8);
+  linkSel = linkG.selectAll('line').data(links, d=>d.key).join('line').attr('class','link')
+    .attr('stroke-width', d=>simMode ? ew*(0.6+4*Math.min(1,(d.w||0)*1.5)) : ew)
+    .attr('marker-end', !simMode && settings.arrows ? 'url(#arr-base)' : null);
+  nodeSel = nodeG.selectAll('g.node').data(nodes, d=>d.key).join(enter=>{
+    const g = enter.append('g').attr('class','node');
+    g.append('circle'); g.append('text').attr('dy','0.32em'); g.append('title');
+    g.on('mouseenter', (e,d)=>applyHighlight(d.key)).on('mouseleave', ()=>applyHighlight())
+     .on('click', (e,d)=>{ e.stopPropagation(); if(e.shiftKey){ setPathEnd(d); } else select(d); })
+     .on('dblclick', (e,d)=>{ e.stopPropagation(); expandOne(d); })
+     .call(d3.drag()
+       .on('start', (e,d)=>{ if(!e.active && !settings.freeze) sim.alphaTarget(0.2).restart(); d.fx = d.x; d.fy = d.y; })
+       .on('drag', (e,d)=>{ d.fx = e.x; d.fy = e.y; if(settings.freeze){ d.x = e.x; d.y = e.y; ticked(); } })
+       .on('end', (e,d)=>{ if(!e.active) sim.alphaTarget(0); if(!d.pinned){ d.fx = null; d.fy = null; lockX([d]); } }));
+    return g;
+  });
+  nodeSel.select('circle').attr('r', d=>d._r).style('fill', colorOf);
+  nodeSel.select('title').text(d=>`${d.title}\n${authorLine(d)}${d.year?' · '+d.year:''}\n${fmt(d.cites)} citations${M.cluster.has(d.key) && M.clusters[M.cluster.get(d.key)] ? '\nCluster: '+M.clusters[M.cluster.get(d.key)].name : ''}`);
+  applyForces(); lockX(nodes);
+  sim.nodes(nodes); sim.force('link').links(links);
+  if(settings.freeze){ sim.stop(); ticked(); }
+  else sim.alpha(Math.max(sim.alpha(), reheat ? 0.5 : 0.08)).restart();
+  drawBackground(nodes); applyHighlight(); drawLegend(); updateAxis();
+}
+function applyForces(){
+  const L = settings.layout, ld = flt(settings.linkDist,55,10,400), ch = flt(settings.charge,60,0,2000), co = flt(settings.collide,3,0,60), gr = flt(settings.gravity,0.04,0,1);
+  const simMode = settings.mode==='similarity';
+  sim.force('link').distance(l=>simMode ? ld*(1.7-Math.min(1,(l.w||0)*1.5)) : ld).strength(l=>simMode ? 0.05+0.7*Math.min(1,(l.w||0)*1.5) : 0.25);
+  sim.force('charge').strength(d=>-ch - d._r*ch/5);
+  sim.force('collide').radius(d=>d._r+co);
+  sim.force('radial', null);
+  if(L==='timeline'){ sim.force('x', d3.forceX(d=>d.year ? yearX(d.year) : 0).strength(d=>d.year ? 0.9 : gr)); sim.force('y', d3.forceY(0).strength(Math.max(gr, 0.06))); }
+  else if(L==='radial'){ sim.force('radial', d3.forceRadial(d=>d.level*ld*2.2, 0, 0).strength(0.9)); sim.force('x', d3.forceX(0).strength(gr/4)); sim.force('y', d3.forceY(0).strength(gr/4)); }
+  else if(L==='hierarchy'){ sim.force('y', d3.forceY(d=>d.side*d.level*ld*2).strength(0.8)); sim.force('x', d3.forceX(0).strength(gr)); }
+  else { sim.force('x', d3.forceX(0).strength(gr)); sim.force('y', d3.forceY(0).strength(gr)); }
+}
+function lockX(nodes){
+  const tl = settings.layout==='timeline';
+  nodes.forEach(d=>{ if(d.pinned) return; if(tl && d.year){ d.fx = yearX(d.year); if(d.x==null) d.x = d.fx; } else if(d.fx!=null && !d.pinned){ d.fx = null; } });
+}
+function drawBackground(nodes){
+  bgG.selectAll('*').remove();
+  const ld = flt(settings.linkDist,55,10,400), maxL = d3.max(nodes, d=>d.level) || 0;
+  if(settings.layout==='radial'){
+    for(let l=1; l<=maxL; l++){ bgG.append('circle').attr('class','bgline').attr('r', l*ld*2.2).style('stroke-dasharray','4 4');
+      bgG.append('text').attr('class','bgtext').attr('x', 4).attr('y', -l*ld*2.2-4).text('depth '+l); }
+  } else if(settings.layout==='hierarchy'){
+    bgG.append('text').attr('class','bgtext').attr('x', 0).attr('y', -ld*2+-40).attr('text-anchor','middle').text('▲ papers citing the seed');
+    bgG.append('text').attr('class','bgtext').attr('x', 0).attr('y', ld*2+40).attr('text-anchor','middle').text('▼ papers the seed cites');
+  }
+}
+function updateAxis(){
+  axisG.selectAll('*').remove();
+  if(!G || settings.layout!=='timeline') return;
+  const t = d3.zoomTransform(svg.node()), b = svg.node().getBoundingClientRect();
+  const [d0, d1] = yearX.domain(), years = d3.range(Math.ceil(d0), Math.floor(d1)+1);
+  const px = years.length > 1 ? Math.abs(t.applyX(yearX(years[1])) - t.applyX(yearX(years[0]))) : 100;
+  const step = Math.max(1, Math.ceil(46/Math.max(1,px)));
+  years.filter(y=>y%step===0).forEach(y=>{ const x = t.applyX(yearX(y)); if(x<0 || x>b.width) return;
+    axisG.append('line').attr('x1',x).attr('x2',x).attr('y1',0).attr('y2',b.height).style('stroke-dasharray','2 4');
+    axisG.append('text').attr('x',x).attr('y',b.height-60).attr('text-anchor','middle').text(y); });
+}
+function updateLabels(){
+  if(!G) return;
+  const mode = settings.labelMode, N = int(settings.labelTopN,40,0,5000), fs = flt(settings.labelSize,10.5,5,30);
+  const top = new Set(nodeSel.data().slice().sort((a,b)=>b._r-a._r).slice(0,N).map(d=>d.key));
+  nodeSel.select('text').style('font-size', fs+'px').attr('x', d=>d._r+3)
+    .text(d=>mode==='none' ? '' : (top.has(d.key) || G.roots.has(d.key) || d.key===selected || (pathState.nodes && pathState.nodes.has(d.key))) ? labelText(d, mode) : '');
+}
+function ticked(){
+  linkSel.each(function(d){
+    const s = d.source, t = d.target; if(!s || s.x==null || !t || t.x==null) return;
+    const dx = t.x-s.x, dy = t.y-s.y, L = Math.hypot(dx,dy)||1, r = (t._r||5)+2;
+    this.setAttribute('x1', s.x); this.setAttribute('y1', s.y); this.setAttribute('x2', t.x-dx/L*r); this.setAttribute('y2', t.y-dy/L*r);
+  });
+  nodeSel.attr('transform', d=>`translate(${d.x||0},${d.y||0})`);
+}
+function applyHighlight(hoverKey){
+  if(!G) return;
+  const k = hoverKey !== undefined ? hoverKey : selected, simMode = settings.mode==='similarity';
+  const pn = pathState.nodes, pe = pathState.edges;
+  nodeSel.classed('sel', d=>d.key===selected).classed('root', d=>G.roots.has(d.key)).classed('pinned', d=>!!d.pinned).classed('path', d=>!!(pn && pn.has(d.key)));
+  let focus = null;
+  if(k){ focus = new Set([k]); linkSel.each(d=>{ const s = kOf(d.source), t = kOf(d.target); if(s===k) focus.add(t); if(t===k) focus.add(s); }); }
+  else if(hl) focus = hl.keys;
+  else if(pn) focus = pn;
+  nodeSel.classed('dim', d=>focus ? !focus.has(d.key) : false);
+  linkSel.classed('path', d=>!simMode && !!(pe && pe.has(d.key)))
+    .classed('out', d=>!simMode && !!k && kOf(d.source)===k).classed('in', d=>!simMode && !!k && kOf(d.target)===k)
+    .classed('nb', d=>simMode && !!k && (kOf(d.source)===k || kOf(d.target)===k))
+    .classed('dim', d=>k ? (kOf(d.source)!==k && kOf(d.target)!==k) : focus ? !(focus.has(kOf(d.source)) && focus.has(kOf(d.target))) : false);
+  if(!simMode && settings.arrows) linkSel.attr('marker-end', d=>(pe && pe.has(d.key)) ? 'url(#arr-path)' : k && kOf(d.source)===k ? 'url(#arr-out)' : k && kOf(d.target)===k ? 'url(#arr-in)' : 'url(#arr-base)');
+  updateLabels();
+}
+const SIZE_NAMES = {cites:'citation count', refs:'reference count', degree:'links in graph', indeg:'times cited within graph', pagerank:'PageRank', simSeed:'similarity to seed', uniform:'uniform'};
+function drawLegend(){
+  const L = $('legend'), li = legendInfo; if(!li) return;
+  let h = `<div><b style="color:var(--ink)">${esc(li.title)}</b></div>`;
+  if(li.kind==='seq') h += `<div class="bar" style="background:linear-gradient(90deg,${li.stops.join(',')})"></div><div class="row"><span>${esc(li.lo)}</span><span>${esc(li.hi)}</span></div>`;
+  else h += li.items.map((it,i)=>`<div class="k clk" data-i="${i}" title="Click to highlight"><b style="background:${it.color}"></b><span>${esc(it.label)}</span><em class="muted" style="font-style:normal;flex:none;margin-left:auto">${it.count}</em></div>`).join('');
+  h += `<div class="k" style="margin-top:6px">Size = ${SIZE_NAMES[settings.sizeBy]||''}</div>`;
+  h += settings.mode==='similarity' ? `<div class="k"><i style="background:var(--edge);height:3px"></i>thicker = more similar</div>`
+    : `<div class="k"><i style="background:var(--ref)"></i>cites (selected →)</div><div class="k"><i style="background:var(--cite)"></i>cited by (→ selected)</div>`;
+  if(pathState.nodes) h += `<div class="k"><i style="background:var(--path);height:3px"></i>citation path</div>`;
+  L.innerHTML = h;
+  L.querySelectorAll('.k.clk').forEach(el=>el.onclick = ()=>{ const it = li.items[+el.dataset.i]; setHL(new Set(it.keys), li.title+': '+it.label); });
+}
+function setHL(keys, label){
+  if(hl && hl.label===label){ hl = null; setStatus(''); }
+  else { hl = {keys, label}; setStatus(`Highlighting ${label} (${keys.size}) — click empty space or press Esc to clear`); }
+  selected = null; applyHighlight();
+}
+function resetView(){ const b = svg.node().getBoundingClientRect(); svg.call(zoom.transform, d3.zoomIdentity.translate(b.width/2, b.height/2)); }
+function fit(){
+  const ns = VIS.nodes.filter(d=>d.x!=null); if(!ns.length) return;
+  const b = svg.node().getBoundingClientRect();
+  const x0 = d3.min(ns,d=>d.x)-40, x1 = d3.max(ns,d=>d.x)+40, y0 = d3.min(ns,d=>d.y)-40, y1 = d3.max(ns,d=>d.y)+40;
+  const k = Math.min(1.4, 0.95*Math.min(b.width/(x1-x0), b.height/(y1-y0)));
+  svg.transition().duration(500).call(zoom.transform, d3.zoomIdentity.translate(b.width/2, b.height/2).scale(k).translate(-(x0+x1)/2, -(y0+y1)/2));
+}
+function centerOn(n){
+  if(!n || n.x==null) return; const b = svg.node().getBoundingClientRect(), t = d3.zoomTransform(svg.node());
+  svg.transition().duration(400).call(zoom.transform, d3.zoomIdentity.translate(b.width/2, b.height/2).scale(Math.max(t.k, 0.8)).translate(-n.x, -n.y));
+}
+let fitDone = false;
+sim.on('end.fit', ()=>{ if(G && !fitDone){ fitDone = true; fit(); } });
+
+/* =====================================================================
+   SELECTION, DETAILS
+   ===================================================================== */
+function select(n){
+  selected = n ? n.key : null;
+  if(n) hl = null;
+  applyHighlight();
+  document.querySelectorAll('#graphList .item').forEach(it=>it.classList.toggle('sel', it.dataset.k===selected));
+  if(n){ showTab('details'); showDetails(n, true); }
+}
+function showDetails(p, inGraph){
+  const R = $('pane-details');
+  const M = inGraph && G ? ensureMetrics() : null;
+  const scholar = 'https://scholar.google.com/scholar?q='+encodeURIComponent('"'+p.title+'"');
+  let rel = '';
+  if(M){
+    const cl = M.clusters[M.cluster.get(p.key)];
+    rel = `<div class="kv" style="margin:8px 0">
+      <span class="muted">Cites in graph</span><b style="color:var(--ref)">${M.outDeg.get(p.key)||0}</b>
+      <span class="muted">Cited by in graph</span><b style="color:var(--cite)">${M.inDeg.get(p.key)||0}</b>
+      <span class="muted">PageRank</span><b>#${M.prRank.get(p.key)} of ${G.nodes.size}</b>
+      ${G.roots.size && !G.roots.has(p.key) ? `<span class="muted">Similarity to seed</span><b>${(M.simSeed.get(p.key)||0).toFixed(3)}</b>` : ''}
+      ${cl && cl.size>1 ? `<span class="muted">Cluster</span><b>${esc(cl.name)} (${cl.size})</b>` : ''}</div>`;
+  }
+  const typeName = p.type ? (DOC_TYPES.find(t=>t[0]===p.type)||[0,p.type])[1] : '';
+  const badges = inGraph && G ? (G.roots.has(p.key) ? '<span class="badge">Seed</span>' : `<span class="badge">Depth ${p.level}</span>`) + (p.side>0 ? '<span class="badge">reference side</span>' : p.side<0 ? '<span class="badge">citing side</span>' : '') + (p.expanded ? '<span class="badge">expanded</span>' : '') + (p.pinned ? '<span class="badge">pinned</span>' : '') : '';
+  R.innerHTML = `
+    <div>${badges}${typeName?`<span class="badge">${esc(typeName)}</span>`:''}${p.isOA?'<span class="badge">open access</span>':''}${p.lang?`<span class="badge">${esc(p.lang)}</span>`:''}</div>
+    <h2>${esc(p.title)}</h2>
+    <div class="m" id="authLine">${esc(p.authors.slice(0,10).join(', '))}${p.authors.length>10?` <a href="#" id="moreAuth">+${p.authors.length-10} more</a>`:''}</div>
+    <div class="m">${[p.year, esc(p.venue)].filter(Boolean).join(' · ')}</div>
+    <div class="m"><b>${fmt(p.cites)}</b> citations${p.refsCount!=null?` · <b>${fmt(p.refsCount)}</b> references`:''}</div>
+    ${rel}
+    <div class="links">
+      <a href="${scholar}" target="_blank" rel="noopener">Google Scholar</a>
+      ${p.doi?`<a href="https://doi.org/${encodeURI(p.doi)}" target="_blank" rel="noopener">DOI</a>`:''}
+      ${p.oa?`<a href="https://openalex.org/${p.oa}" target="_blank" rel="noopener">OpenAlex</a>`:''}
+      ${p.s2?`<a href="https://www.semanticscholar.org/paper/${p.s2}" target="_blank" rel="noopener">Semantic Scholar</a>`:p.doi?`<a href="https://api.semanticscholar.org/DOI:${encodeURI(p.doi)}" target="_blank" rel="noopener">Semantic Scholar</a>`:''}
+      <span id="pdfLink">${p.oaUrl?`<a href="${esc(p.oaUrl)}" target="_blank" rel="noopener">Open-access PDF</a>`:''}</span>
+    </div>
+    <div class="acts2">
+      ${inGraph?`<button class="btn small" data-a="expand">Expand</button>`:''}
+      <button class="btn small primary" data-a="root">New graph from this</button>
+      <button class="btn small" data-a="seed">+ Seed</button>
+      ${inGraph?`<button class="btn small" data-a="pathA">Path from here</button><button class="btn small" data-a="pathB">Path to here</button>
+      <button class="btn small" data-a="pin">${p.pinned?'Unpin':'Pin position'}</button><button class="btn small" data-a="hide">Hide</button>`:''}
+      ${!inGraph && G ? `<button class="btn small" data-a="add">Add to graph</button>` : ''}
+      <button class="btn small" data-a="cite">Copy citation</button><button class="btn small" data-a="bib">Copy BibTeX</button>
+      <button class="btn small" data-a="cov" title="Ask every database how many references and citations it has for this paper">Check sources</button>
+    </div>
+    <div id="covBox"></div>
+    <div class="abs muted" id="abs">${p.abstract ? esc(p.abstract) : p.abstract==='' ? 'No abstract available.' : 'Loading abstract…'}</div>`;
+  const ma = $('moreAuth'); if(ma) ma.onclick = e=>{ e.preventDefault(); $('authLine').textContent = p.authors.join(', '); };
+  R.querySelectorAll('[data-a]').forEach(b=>b.onclick = ()=>{
+    const a = b.dataset.a;
+    if(a==='expand') expandOne(p);
+    else if(a==='root') buildGraph([p]);
+    else if(a==='seed') addSeed(p);
+    else if(a==='pathA'){ pathState.a = p.key; setStatus('Path start: '+trunc(p.title,50)+' — now choose “Path to here” on another paper (or Shift+click it).'); renderAnalysisIfOpen(); }
+    else if(a==='pathB') setPathEnd(p);
+    else if(a==='pin'){ p.pinned = !p.pinned; if(p.pinned){ p.fx = p.x; p.fy = p.y; } else { p.fx = null; p.fy = null; } applyHighlight(); showDetails(p, true); }
+    else if(a==='hide'){ p.hidden = true; G.ver++; selected = null; render(false); renderList(); setStatus(`Hidden “${trunc(p.title,40)}”. Restore it in View options.`); }
+    else if(a==='add'){ const n = addPaperToGraph(p); if(n) select(n); }
+    else if(a==='cite') copyText(citationText(p), 'Citation copied');
+    else if(a==='bib') copyText(bibEntry(p, new Set()), 'BibTeX copied');
+    else if(a==='cov') checkSources(p);
+  });
+  if(p.abstract==null){
+    (async()=>{
+      let r = null; try{ r = await call('abstract', p); }catch(e){}
+      p.abstract = (r && r.text) || ''; if(r && r.oaUrl && !p.oaUrl) p.oaUrl = r.oaUrl;
+      const a = $('abs'); if(!a || R.querySelector('h2').textContent !== p.title) return;
+      a.textContent = p.abstract || 'No abstract available.';
+      if(p.oaUrl) $('pdfLink').innerHTML = `<a href="${esc(p.oaUrl)}" target="_blank" rel="noopener">Open-access PDF</a>`;
+    })();
+  }
+}
+async function checkSources(p){
+  const box = $('covBox'); if(!box) return;
+  const rows = ['openalex','s2','oc'].map(s=>({s, txt:'checking…'}));
+  const draw = ()=>{ box.innerHTML = `<h3>Source coverage</h3><table class="small" style="width:100%;border-collapse:collapse">
+    <tr class="muted"><td>Source</td><td style="text-align:right">Refs</td><td style="text-align:right">Cites</td></tr>
+    ${rows.map(r=>`<tr style="border-top:1px solid var(--line)"><td style="padding:4px 0">${NAMES[r.s]}${r.note?`<div class="muted" style="font-size:11.5px">${esc(r.note)}</div>`:''}</td>
+      ${r.refs!=null ? `<td style="text-align:right"><b>${fmt(r.refs)}</b></td><td style="text-align:right"><b>${fmt(r.cites)}</b></td>` : `<td colspan="2" style="text-align:right" class="muted">${esc(r.txt)}</td>`}</tr>`).join('')}</table>
+    <div class="muted small" style="margin-top:4px">In Auto mode, a seed paper falls back to the next source when one returns nothing. Change the order in Settings → Sources.</div>`; };
+  draw();
+  await Promise.all(rows.map(async r=>{
+    const src = SOURCES[r.s];
+    if(!src.can(p)){ r.txt = 'cannot identify this paper'; draw(); return; }
+    try{ const c = await src.coverage(p); if(c.found){ r.refs = c.refs; r.cites = c.cites; } else r.txt = 'not found'; r.note = c.note; }
+    catch(e){ r.txt = e.rateLimited ? 'rate-limited — add a free key or retry' : e.message; }
+    draw();
+  }));
+}
+function setPathEnd(p){
+  if(!pathState.a){ pathState.a = p.key; setStatus('Path start set. Shift+click (or “Path to here”) another paper.'); renderAnalysisIfOpen(); return; }
+  pathState.b = p.key; runPath();
+}
+function runPath(){
+  if(!pathState.a || !pathState.b) return;
+  const r = findPath(pathState.a, pathState.b, pathState.directed);
+  if(!r){ pathState.nodes = null; pathState.edges = null; setStatus('No citation path between these papers in the current graph.'); }
+  else { pathState.nodes = new Set(r.nodes); pathState.edges = new Set(r.edges); setStatus(`Citation path: ${r.nodes.length-1} step${r.nodes.length>2?'s':''} — ${r.nodes.map(k=>labelText(G.nodes.get(k),'author-year')).join(' → ')}`);
+    if(settings.mode==='similarity'){ settings.mode = 'citation'; saveSettings(); syncControls(); render(false); } }
+  selected = null; hl = null; applyHighlight(); drawLegend(); renderAnalysisIfOpen();
+}
+function clearPath(){ pathState = {a:null, b:null, nodes:null, edges:null, directed:pathState.directed}; applyHighlight(); drawLegend(); renderAnalysisIfOpen(); }
+
+/* =====================================================================
+   SEARCH, SEEDS, LIST
+   ===================================================================== */
+let results = [], seeds = [];
+async function doSearch(q){
+  q = q.trim(); if(!q) return;
+  cancelFlag = false;
+  const left = $('leftBody');
+  left.innerHTML = '<div class="sect-h">Searching…</div>';
+  const ids = {}; let m;
+  if((m = /(10\.\d{4,9}\/[^\s"<>]+)/.exec(q))) ids.doi = normDoi(m[1]);
+  else if((m = /^(?:arxiv:\s*|https?:\/\/arxiv\.org\/abs\/)?(\d{4}\.\d{4,5})(v\d+)?$/i.exec(q))){ ids.arxiv = m[1]; ids.doi = '10.48550/arxiv.'+m[1]; }
+  else if((m = /^(?:https?:\/\/openalex\.org\/)?(W\d{4,})$/i.exec(q))) ids.oa = m[1].toUpperCase();
+  else if(/^[0-9a-f]{40}$/i.test(q)) ids.s2 = q.toLowerCase();
+  else if((m = /^pmid:?\s*(\d+)$/i.exec(q))) ids.pmid = m[1];
+  const yr = {from:int(settings.searchYearFrom,0)||'', to:int(settings.searchYearTo,0)||'', n:int(settings.searchN,12,1,100)};
+  const F = settings.filtersOnSearch ? fetchFilters() : null;
+  try{
+    if(Object.keys(ids).length){
+      try{ results = await call('lookup', null, ids); }catch(e){ results = []; }
+      if(!results.length) results = await call('search', null, ids.arxiv || q, F, yr);
+    } else results = await call('search', null, q, F, yr);
+  }catch(e){ left.innerHTML = `<div class="warn">Search failed: ${esc(e.message)}${esc(keyHint([e]))}</div>`; return; }
+  renderResults();
+}
+function renderResults(){
+  const left = $('leftBody');
+  if(!results.length){ left.innerHTML = '<div class="warn">No papers found. Try the exact title or a DOI.</div>'; return; }
+  left.innerHTML = `<div class="sect-h"><span>Search results <span class="muted" style="font-weight:400;font-size:12px">via ${NAMES[lastSource]||''}</span></span>${G?'<button class="btn small" id="toGraph">Graph list</button>':''}</div>` +
+    results.map((p,i)=>`<div class="item" data-i="${i}"><div class="t">${esc(p.title)}</div>
+      <div class="m">${esc(authorLine(p))}${p.year?' · '+p.year:''}${p.venue?' · '+esc(trunc(p.venue,40)):''}</div>
+      <div class="m">${fmt(p.cites)} citations${p.refsCount!=null?' · '+fmt(p.refsCount)+' references':''}</div>
+      <div class="acts"><button class="btn small primary" data-build="${i}">Build graph</button><button class="btn small" data-seed="${i}">+ Seed</button></div></div>`).join('');
+  left.querySelectorAll('[data-build]').forEach(b=>b.onclick = e=>{ e.stopPropagation(); buildGraph([results[+b.dataset.build]]); });
+  left.querySelectorAll('[data-seed]').forEach(b=>b.onclick = e=>{ e.stopPropagation(); addSeed(results[+b.dataset.seed]); });
+  left.querySelectorAll('.item').forEach(it=>it.onclick = ()=>{ showTab('details'); showDetails(results[+it.dataset.i], false); });
+  const tg = $('toGraph'); if(tg) tg.onclick = ()=>renderList(true);
+}
+function addSeed(p){
+  const k = keyOf(p);
+  if(!seeds.some(s=>keyOf(s)===k)) seeds.push(paper(Object.assign({}, p, {key:undefined, x:undefined, y:undefined, fx:undefined, fy:undefined})));
+  renderSeeds(); setStatus(`${seeds.length} seed paper${seeds.length>1?'s':''} selected — build a combined graph from the left panel.`);
+}
+function renderSeeds(){
+  const B = $('seedBox'); B.hidden = !seeds.length; if(!seeds.length) return;
+  B.innerHTML = `<div style="font-weight:600;margin-bottom:6px">Seeds (${seeds.length})</div>` +
+    seeds.map((s,i)=>`<span class="chip" title="${esc(s.title)}"><span>${esc(trunc(s.title,38))}</span><button data-rm="${i}" aria-label="Remove">×</button></span>`).join('') +
+    `<div class="acts" style="margin-top:6px;display:flex;gap:6px"><button class="btn small primary" id="buildSeeds">Build combined graph</button><button class="btn small" id="clearSeeds">Clear</button></div>`;
+  B.querySelectorAll('[data-rm]').forEach(b=>b.onclick = ()=>{ seeds.splice(+b.dataset.rm, 1); renderSeeds(); });
+  $('buildSeeds').onclick = ()=>buildGraph(seeds.slice());
+  $('clearSeeds').onclick = ()=>{ seeds = []; renderSeeds(); };
+}
+let sortBy = 'cites', listFilter = '';
+function renderList(force){
+  if(!G) return;
+  const left = $('leftBody');
+  if(!$('graphList') || force){
+    left.innerHTML = `<div class="sect-h"><span id="listTitle">Papers in graph</span>
+      <span style="display:flex;gap:6px;align-items:center"><select id="sortSel">
+        <option value="cites">Most cited</option><option value="pagerank">Most central</option><option value="year">Newest</option><option value="oldest">Oldest</option><option value="level">By depth</option><option value="sim">Most similar to seed</option><option value="title">Title</option></select>
+      ${results.length?'<button class="btn small" id="backRes">Results</button>':''}</span>
+      <input id="listFilter" type="search" placeholder="Find in graph (title, author, venue)…" style="width:100%" value="${esc(listFilter)}"></div><div id="graphList"></div>`;
+    const ss = $('sortSel'); ss.value = sortBy; ss.onchange = ()=>{ sortBy = ss.value; renderList(); };
+    const br = $('backRes'); if(br) br.onclick = renderResults;
+    $('listFilter').oninput = e=>{ listFilter = e.target.value; renderList(); };
+  }
+  const M = ensureMetrics(), q = listFilter.trim().toLowerCase();
+  const cmp = {pagerank:(a,b)=>M.pr.get(b.key)-M.pr.get(a.key), year:(a,b)=>(b.year||0)-(a.year||0), oldest:(a,b)=>(a.year||9999)-(b.year||9999),
+    title:(a,b)=>a.title.localeCompare(b.title), level:(a,b)=>a.level-b.level||b.cites-a.cites, sim:(a,b)=>(M.simSeed.get(b.key)||0)-(M.simSeed.get(a.key)||0), cites:(a,b)=>b.cites-a.cites}[sortBy];
+  let nodes = [...G.nodes.values()].filter(n=>!n.hidden);
+  if(q) nodes = nodes.filter(n=>(n.title+' '+n.authors.join(' ')+' '+n.venue).toLowerCase().includes(q));
+  nodes.sort(cmp);
+  $('listTitle').textContent = `Papers in graph (${q ? nodes.length+' of ' : ''}${[...G.nodes.values()].filter(n=>!n.hidden).length})`;
+  $('graphList').innerHTML = nodes.map(n=>`<div class="item${selected===n.key?' sel':''}" data-k="${esc(n.key)}"><div class="t"><span class="dot" style="background:${colorOf(n)}"></span>${esc(n.title)}</div>
+      <div class="m">${esc(authorLine(n))}${n.year?' · '+n.year:''} · ${fmt(n.cites)} cites${G.roots.has(n.key)?' · <b>seed</b>':''}</div></div>`).join('');
+  $('graphList').querySelectorAll('.item').forEach(it=>it.onclick = ()=>{ const n = G.nodes.get(it.dataset.k); select(n); centerOn(n); });
+  if(q){ hl = {keys:new Set(nodes.map(n=>n.key)), label:'search “'+q+'”'}; selected = null; applyHighlight(); }
+  else if(hl && hl.label.startsWith('search “')){ hl = null; applyHighlight(); }
+}
+
+/* =====================================================================
+   ANALYSIS PANE
+   ===================================================================== */
+function renderAnalysisIfOpen(){ if(!$('pane-analysis').hidden) renderAnalysis(); }
+function rankHTML(rows, attr){ return `<ul class="rank">${rows.map((r,i)=>`<li data-${attr}="${i}" title="${esc(r[0])}"><span>${esc(r[0])}</span><span class="n">${r[1]}</span></li>`).join('')}</ul>`; }
+function renderAnalysis(){
+  const P = $('pane-analysis');
+  if(!G){ P.innerHTML = '<div class="muted">Build a graph first.</div>'; return; }
+  const M = ensureMetrics(), nodes = [...G.nodes.values()].filter(n=>!n.hidden);
+  const yrs = nodes.map(n=>n.year).filter(Boolean), cites = nodes.map(n=>n.cites||0).sort(d3.ascending);
+  const oaKnown = nodes.filter(n=>n.isOA!=null), clusters = M.clusters.filter(c=>c.size>1);
+  const authors = d3.rollups(nodes.flatMap(n=>n.authors.slice(0,30).map(a=>[a,n.key])), v=>v.map(x=>x[1]), d=>d[0]).sort((a,b)=>b[1].length-a[1].length).slice(0,10);
+  const venues = d3.rollups(nodes.filter(n=>n.venue), v=>v.map(n=>n.key), n=>n.venue).sort((a,b)=>b[1].length-a[1].length).slice(0,10);
+  const central = nodes.slice().sort((a,b)=>M.pr.get(b.key)-M.pr.get(a.key)).slice(0,10);
+  const pa = pathState.a && G.nodes.get(pathState.a), pb = pathState.b && G.nodes.get(pathState.b);
+  P.innerHTML = `
+    <h3 style="margin-top:0">Overview</h3>
+    <div class="kv">
+      <span class="muted">Papers</span><b>${nodes.length}${G.nodes.size>nodes.length?` (+${G.nodes.size-nodes.length} hidden)`:''}</b>
+      <span class="muted">Citation links</span><b>${G.edges.size}</b>
+      <span class="muted">Similarity links</span><b>${G.simEdges.length}</b>
+      <span class="muted">Seeds</span><b>${G.roots.size}</b>
+      <span class="muted">Years</span><b>${yrs.length ? d3.min(yrs)+' – '+d3.max(yrs) : '–'}</b>
+      <span class="muted">Median citations</span><b>${cites.length ? fmt(Math.round(d3.median(cites))) : '–'}</b>
+      <span class="muted">Open access</span><b>${oaKnown.length ? Math.round(100*oaKnown.filter(n=>n.isOA).length/oaKnown.length)+'%' : 'unknown'}</b>
+      <span class="muted">Clusters (2+ papers)</span><b>${clusters.length}</b>
+    </div>
+    <h3>Papers per year</h3><div id="histo"></div>
+    <h3>Clusters <button class="btn small" id="colorClusters" style="float:right;text-transform:none;letter-spacing:0">Color by cluster</button></h3>
+    ${clusters.length ? `<ul class="rank">${clusters.slice(0,15).map((c,i)=>`<li data-cl="${c.id}"><span><span class="dot" style="background:${i<10?d3.schemeTableau10[i]:NA}"></span>${esc(c.name)}</span><span class="n">${c.size}</span></li>`).join('')}</ul>` : '<div class="muted small">No clusters yet (graph too sparse).</div>'}
+    <h3>Most central (PageRank)</h3>
+    <ul class="rank">${central.map(n=>`<li data-k="${esc(n.key)}"><span>${esc(trunc(n.title,60))}</span><span class="n">${n.year||''}</span></li>`).join('')}</ul>
+    <h3>Top authors</h3>${rankHTML(authors.map(a=>[a[0], a[1].length]), 'au')}
+    <h3>Top venues</h3>${rankHTML(venues.map(v=>[v[0], v[1].length]), 've')}
+    <h3>Prior works</h3>
+    <div class="muted small">Older papers cited by many papers in this graph (may be outside the graph).</div>
+    <div class="acts2"><button class="btn small" id="priorBtn">${G.prior ? 'Refresh' : 'Find prior works'}</button></div><div id="priorBox">${worksHTML(G.prior, 'pr')}</div>
+    <h3>Derivative works</h3>
+    <div class="muted small">Papers that cite many papers in this graph (uses OpenAlex).</div>
+    <div class="acts2"><button class="btn small" id="derivBtn">${G.deriv ? 'Refresh' : 'Find derivative works'}</button></div><div id="derivBox">${worksHTML(G.deriv, 'dv')}</div>
+    <h3>Citation path finder</h3>
+    <div class="kv"><span class="muted">From</span><span>${pa ? esc(trunc(pa.title,50)) : '<i class="muted">select a paper → “Path from here”</i>'}</span>
+      <span class="muted">To</span><span>${pb ? esc(trunc(pb.title,50)) : '<i class="muted">“Path to here” or Shift+click</i>'}</span></div>
+    <label class="ctl" style="margin-top:6px"><input type="checkbox" id="pathDir" ${pathState.directed?'checked':''}> Follow citation direction only</label>
+    <div class="acts2"><button class="btn small primary" id="pathGo" ${pa&&pb?'':'disabled'}>Find path</button><button class="btn small" id="pathClear">Clear</button></div>`;
+  drawHisto(nodes);
+  $('colorClusters').onclick = ()=>{ settings.colorBy = 'cluster'; saveSettings(); syncControls(); render(false); };
+  P.querySelectorAll('[data-cl]').forEach(li=>li.onclick = ()=>{ const c = M.clusters[+li.dataset.cl]; setHL(new Set(c.keys), 'cluster '+c.name); });
+  P.querySelectorAll('li[data-k]').forEach(li=>li.onclick = ()=>{ const n = G.nodes.get(li.dataset.k); select(n); centerOn(n); });
+  P.querySelectorAll('[data-au]').forEach(li=>li.onclick = ()=>{ const a = authors[+li.dataset.au]; setHL(new Set(a[1]), 'author '+a[0]); });
+  P.querySelectorAll('[data-ve]').forEach(li=>li.onclick = ()=>{ const v = venues[+li.dataset.ve]; setHL(new Set(v[1]), 'venue '+v[0]); });
+  $('priorBtn').onclick = async()=>{ $('priorBox').innerHTML = '<div class="muted small">Computing…</div>'; G.prior = await priorWorks(); renderAnalysis(); };
+  $('derivBtn').onclick = async()=>{ $('derivBox').innerHTML = '<div class="muted small">Querying…</div>'; G.deriv = await derivativeWorks(); renderAnalysis(); };
+  wireWorks('pr', G.prior); wireWorks('dv', G.deriv);
+  $('pathDir').onchange = e=>{ pathState.directed = e.target.checked; };
+  $('pathGo').onclick = runPath; $('pathClear').onclick = clearPath;
+}
+function worksHTML(list, tag){
+  if(!list) return '';
+  if(!list.length) return '<div class="muted small">None found.</div>';
+  return `<ul class="rank">${list.map((r,i)=>`<li data-${tag}="${i}" title="${esc(r.p.title)}"><span>${r.inGraph?'● ':''}${esc(trunc(r.p.title,52))} <span class="muted">${r.p.year||''}</span></span>
+    <span class="n">${r.count}× ${r.inGraph?'':`<button class="btn small" data-add${tag}="${i}">Add</button>`}</span></li>`).join('')}</ul><div class="muted small">● already in graph · number = graph papers linked</div>`;
+}
+function wireWorks(tag, list){
+  if(!list) return;
+  document.querySelectorAll(`[data-${tag}]`).forEach(li=>li.onclick = e=>{
+    if(e.target.dataset['add'+tag]!==undefined) return;
+    const r = list[+li.dataset[tag]]; if(r.inGraph){ const n = findNode(r.p) || r.p; select(n); centerOn(n); } else { showTab('details'); showDetails(r.p, false); }
+  });
+  document.querySelectorAll(`[data-add${tag}]`).forEach(b=>b.onclick = e=>{ e.stopPropagation(); const r = list[+b.dataset['add'+tag]]; const n = addPaperToGraph(r.p); r.inGraph = true; r.p = n; renderAnalysis(); });
+}
+function drawHisto(nodes){
+  const box = $('histo'), w = box.clientWidth || 300, h = 90;
+  const counts = d3.rollups(nodes.filter(n=>n.year), v=>v.length, n=>n.year).sort((a,b)=>a[0]-b[0]);
+  if(!counts.length){ box.innerHTML = '<div class="muted small">No years.</div>'; return; }
+  const x = d3.scaleBand().domain(d3.range(counts[0][0], counts[counts.length-1][0]+1)).range([0,w]).padding(0.12);
+  const y = d3.scaleLinear().domain([0, d3.max(counts, c=>c[1])]).range([h-14, 0]);
+  const s = d3.select(box).html('').append('svg').attr('class','hist').attr('width', w).attr('height', h);
+  s.selectAll('rect').data(counts).join('rect').attr('x', d=>x(d[0])).attr('width', Math.max(1,x.bandwidth())).attr('y', d=>y(d[1])).attr('height', d=>h-14-y(d[1]))
+    .classed('on', d=>hl && hl.label==='year '+d[0])
+    .on('click', (e,d)=>{ setHL(new Set(nodes.filter(n=>n.year===d[0]).map(n=>n.key)), 'year '+d[0]); drawHisto(nodes); })
+    .append('title').text(d=>`${d[0]}: ${d[1]} paper${d[1]>1?'s':''}`);
+  const ends = [counts[0][0], counts[counts.length-1][0]];
+  s.append('text').attr('x',0).attr('y',h-2).text(ends[0]); s.append('text').attr('x',w).attr('y',h-2).attr('text-anchor','end').text(ends[1]);
+}
+</script>
+<script>
+"use strict";
+/* =====================================================================
+   EXPORT
+   ===================================================================== */
+function download(name, data, type){
+  const a = document.createElement('a'); a.href = URL.createObjectURL(data instanceof Blob ? data : new Blob([data], {type})); a.download = name;
+  document.body.appendChild(a); a.click(); setTimeout(()=>{ URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+}
+const fileBase = () => 'citation-graph-' + (G && G.roots.size ? slug(G.nodes.get([...G.roots][0]).title) : 'export');
+const slug = s => String(s).toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'').slice(0,40) || 'graph';
+function exportNodes(){ return settings.exportVisibleOnly ? VIS.nodes.slice() : [...G.nodes.values()]; }
+function exportEdges(nodes){ const ks = new Set(nodes.map(n=>n.key)); return [...G.edges.values()].filter(e=>ks.has(kOf(e.source)) && ks.has(kOf(e.target)) && (settings.crossLinks || !e.cross)); }
+function colVal(n, c, M){
+  const cl = M.clusters[M.cluster.get(n.key)];
+  return {title:n.title, authors:n.authors.join('; '), year:n.year, venue:n.venue, type:n.type, citations:n.cites, references:n.refsCount, doi:n.doi, openalex:n.oa, s2:n.s2,
+    depth:n.level, side:G.roots.has(n.key)?'seed':n.side>0?'reference':n.side<0?'citing':'', cluster:cl&&cl.size>1?cl.name:'', pagerank:(M.pr.get(n.key)||0).toFixed(6),
+    degree:(M.inDeg.get(n.key)||0)+(M.outDeg.get(n.key)||0), oa:n.isOA==null?'':n.isOA, oa_url:n.oaUrl, abstract:n.abstract}[c];
+}
+const csvQ = v => '"'+String(v==null?'':v).replace(/"/g,'""')+'"';
+function exportCSV(){
+  const M = ensureMetrics(), cols = settings.csvCols.length ? settings.csvCols : ['title'];
+  const rows = [cols].concat(exportNodes().map(n=>cols.map(c=>colVal(n,c,M))));
+  download(fileBase()+'-papers.csv', '﻿'+rows.map(r=>r.map(csvQ).join(',')).join('\n'), 'text/csv');
+}
+function exportEdgesCSV(){
+  const nodes = exportNodes(), rows = [['citing_title','citing_doi','cited_title','cited_doi','type']];
+  exportEdges(nodes).forEach(e=>{ const s = G.nodes.get(kOf(e.source)), t = G.nodes.get(kOf(e.target)); rows.push([s.title, s.doi, t.title, t.doi, 'cites']); });
+  if(settings.mode==='similarity'){ const ks = new Set(nodes.map(n=>n.key)); G.simEdges.filter(e=>ks.has(kOf(e.source))&&ks.has(kOf(e.target))).forEach(e=>{ const s = G.nodes.get(kOf(e.source)), t = G.nodes.get(kOf(e.target)); rows.push([s.title, s.doi, t.title, t.doi, 'similarity '+e.w.toFixed(4)]); }); }
+  download(fileBase()+'-links.csv', '﻿'+rows.map(r=>r.map(csvQ).join(',')).join('\n'), 'text/csv');
+}
+function bibType(n){
+  if(/conference|proceedings|symposium|workshop/i.test(n.venue||'')) return ['inproceedings','booktitle'];
+  return ({book:['book','publisher'], 'book-chapter':['incollection','booktitle'], dissertation:['phdthesis','school'], preprint:['misc','howpublished'], dataset:['misc','howpublished'], other:['misc','howpublished']})[n.type] || ['article','journal'];
+}
+function bibEntry(n, used){
+  const base = ((n.authors[0]||'anon').split(' ').pop().replace(/[^A-Za-z]/g,'') || 'anon') + (n.year||'') + (titleWords(n.title)[0]||'');
+  let id = base, i = 1; while(used.has(id)) id = base + String.fromCharCode(96 + i++); used.add(id);
+  const [type, vf] = bibType(n);
+  const f = [['title', n.title], ['author', n.authors.join(' and ')], ['year', n.year], [vf, n.venue], ['doi', n.doi], ['url', n.oaUrl || (n.doi ? 'https://doi.org/'+n.doi : '')]].filter(x=>x[1]);
+  return `@${type}{${id},\n${f.map(([k,v])=>`  ${k} = {${String(v).replace(/[{}]/g,'')}}`).join(',\n')}\n}`;
+}
+function exportBib(){ const used = new Set(); download(fileBase()+'.bib', exportNodes().map(n=>bibEntry(n, used)).join('\n\n'), 'text/plain'); }
+function exportRIS(){
+  const T = {article:'JOUR', review:'JOUR', preprint:'UNPB', book:'BOOK', 'book-chapter':'CHAP', dataset:'DATA', dissertation:'THES', other:'GEN'};
+  const out = exportNodes().map(n=>{
+    const L = [['TY', /conference|proceedings/i.test(n.venue||'') ? 'CONF' : (T[n.type]||'JOUR')], ['TI', n.title], ...n.authors.map(a=>['AU', a]), ['PY', n.year], ['T2', n.venue], ['DO', n.doi],
+      ['UR', n.oaUrl || (n.doi ? 'https://doi.org/'+n.doi : '')], ['AB', n.abstract]].filter(x=>x[1]);
+    return L.map(([k,v])=>`${k}  - ${String(v).replace(/\s+/g,' ')}`).join('\r\n') + '\r\nER  - ';
+  });
+  download(fileBase()+'.ris', out.join('\r\n\r\n')+'\r\n', 'application/x-research-info-systems');
+}
+const xmlEsc = s => String(s==null?'':s).replace(/[<>&"']/g, c=>({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;',"'":'&apos;'}[c]));
+function resolvedColor(n){ const c = colorOf(n); if(!String(c).startsWith('var(')) return c; return getComputedStyle(document.documentElement).getPropertyValue(c.slice(4,-1)).trim() || NA; }
+function graphEdgesForExport(nodes){
+  if(settings.mode==='similarity'){ const ks = new Set(nodes.map(n=>n.key)); return {directed:false, list:G.simEdges.filter(e=>ks.has(kOf(e.source))&&ks.has(kOf(e.target))).map(e=>({s:kOf(e.source), t:kOf(e.target), w:e.w}))}; }
+  return {directed:true, list:exportEdges(nodes).map(e=>({s:kOf(e.source), t:kOf(e.target), w:1}))};
+}
+function exportGraphML(){
+  const M = ensureMetrics(), nodes = exportNodes(), id = new Map(nodes.map((n,i)=>[n.key,'n'+i])), E = graphEdgesForExport(nodes);
+  const keys = [['title','string'],['authors','string'],['year','int'],['venue','string'],['citations','int'],['doi','string'],['depth','int'],['cluster','string'],['pagerank','double'],['color','string'],['x','double'],['y','double'],['size','double']];
+  let x = `<?xml version="1.0" encoding="UTF-8"?>\n<graphml xmlns="http://graphml.graphdrawing.org/xmlns">\n`;
+  keys.forEach(([k,t])=>x += `  <key id="${k}" for="node" attr.name="${k}" attr.type="${t}"/>\n`);
+  x += `  <key id="weight" for="edge" attr.name="weight" attr.type="double"/>\n  <graph id="G" edgedefault="${E.directed?'directed':'undirected'}">\n`;
+  nodes.forEach(n=>{ const cl = M.clusters[M.cluster.get(n.key)];
+    const v = {title:n.title, authors:n.authors.join('; '), year:n.year, venue:n.venue, citations:n.cites, doi:n.doi, depth:n.level, cluster:cl&&cl.size>1?cl.name:'', pagerank:M.pr.get(n.key), color:d3.color(resolvedColor(n)).formatHex(), x:n.x, y:n.y, size:n._r};
+    x += `    <node id="${id.get(n.key)}">` + keys.filter(([k])=>v[k]!=null && v[k]!=='').map(([k])=>`<data key="${k}">${xmlEsc(v[k])}</data>`).join('') + `</node>\n`; });
+  E.list.forEach((e,i)=>x += `    <edge id="e${i}" source="${id.get(e.s)}" target="${id.get(e.t)}"><data key="weight">${e.w}</data></edge>\n`);
+  x += '  </graph>\n</graphml>\n';
+  download(fileBase()+'.graphml', x, 'application/xml');
+}
+function exportGEXF(){
+  const M = ensureMetrics(), nodes = exportNodes(), id = new Map(nodes.map((n,i)=>[n.key,'n'+i])), E = graphEdgesForExport(nodes);
+  const attrs = [['year','integer'],['citations','integer'],['venue','string'],['doi','string'],['depth','integer'],['cluster','string'],['pagerank','double']];
+  let x = `<?xml version="1.0" encoding="UTF-8"?>\n<gexf xmlns="http://gexf.net/1.3" xmlns:viz="http://gexf.net/1.3/viz" version="1.3">\n<meta><creator>Citation Graph Explorer</creator></meta>\n<graph defaultedgetype="${E.directed?'directed':'undirected'}">\n<attributes class="node">\n`;
+  attrs.forEach(([a,t],i)=>x += `  <attribute id="${i}" title="${a}" type="${t}"/>\n`);
+  x += '</attributes>\n<nodes>\n';
+  nodes.forEach(n=>{ const cl = M.clusters[M.cluster.get(n.key)], c = d3.color(resolvedColor(n)).rgb();
+    const v = [n.year, n.cites, n.venue, n.doi, n.level, cl&&cl.size>1?cl.name:'', M.pr.get(n.key)];
+    x += `  <node id="${id.get(n.key)}" label="${xmlEsc(n.title)}"><attvalues>${v.map((val,i)=>val==null||val===''?'':`<attvalue for="${i}" value="${xmlEsc(val)}"/>`).join('')}</attvalues>`+
+      `<viz:size value="${(n._r||5).toFixed(2)}"/><viz:position x="${(n.x||0).toFixed(2)}" y="${(-(n.y||0)).toFixed(2)}" z="0"/><viz:color r="${Math.round(c.r)}" g="${Math.round(c.g)}" b="${Math.round(c.b)}"/></node>\n`; });
+  x += '</nodes>\n<edges>\n';
+  E.list.forEach((e,i)=>x += `  <edge id="${i}" source="${id.get(e.s)}" target="${id.get(e.t)}" weight="${e.w}"/>\n`);
+  x += '</edges>\n</graph>\n</gexf>\n';
+  download(fileBase()+'.gexf', x, 'application/xml');
+}
+function svgSnapshot(){
+  const src = svg.node(), bb = zoomG.node().getBBox(), pad = 30;
+  const clone = src.cloneNode(true);
+  const props = ['fill','fill-opacity','stroke','stroke-width','stroke-opacity','stroke-dasharray','opacity','font-size','font-family','font-weight','paint-order','stroke-linejoin','display'];
+  const so = src.querySelectorAll('*'), co = clone.querySelectorAll('*');
+  so.forEach((el,i)=>{ const cs = getComputedStyle(el); co[i].setAttribute('style', props.map(p=>`${p}:${cs.getPropertyValue(p)}`).join(';')); });
+  const cz = clone.querySelector('#zoomG'); cz.removeAttribute('transform');
+  const ax = clone.querySelector('#axisOverlay'); if(ax) ax.remove();
+  const w = Math.ceil(bb.width+2*pad), h = Math.ceil(bb.height+2*pad);
+  clone.setAttribute('xmlns','http://www.w3.org/2000/svg'); clone.setAttribute('viewBox', `${bb.x-pad} ${bb.y-pad} ${w} ${h}`);
+  clone.setAttribute('width', w); clone.setAttribute('height', h); clone.removeAttribute('style'); clone.removeAttribute('id');
+  const bg = document.createElementNS('http://www.w3.org/2000/svg','rect');
+  bg.setAttribute('x', bb.x-pad); bg.setAttribute('y', bb.y-pad); bg.setAttribute('width', w); bg.setAttribute('height', h); bg.setAttribute('fill', getComputedStyle(document.body).backgroundColor);
+  clone.insertBefore(bg, clone.firstChild);
+  return {text:new XMLSerializer().serializeToString(clone), w, h};
+}
+function exportSVG(){ download(fileBase()+'.svg', svgSnapshot().text, 'image/svg+xml'); }
+function exportPNG(){
+  const {text, w, h} = svgSnapshot();
+  let sc = int(settings.pngScale,2,1,4); while(w*sc > 12000 || h*sc > 12000) sc /= 2;
+  const img = new Image();
+  img.onload = ()=>{ const c = document.createElement('canvas'); c.width = Math.round(w*sc); c.height = Math.round(h*sc);
+    const ctx = c.getContext('2d'); ctx.drawImage(img, 0, 0, c.width, c.height);
+    c.toBlob(b=>b ? download(fileBase()+'.png', b) : setStatus('PNG export failed (image too large).'), 'image/png'); };
+  img.onerror = ()=>setStatus('PNG export failed.');
+  img.src = 'data:image/svg+xml;charset=utf-8,'+encodeURIComponent(text);
+}
+
+/* =====================================================================
+   SAVE / LOAD / LIBRARY
+   ===================================================================== */
+const SAVE_FIELDS = ['key','doi','oa','s2','title','year','authors','venue','cites','refsCount','type','lang','isOA','oaUrl','level','side','expanded','hidden','pinned','oaRefs','abstract'];
+function serialize(name){
+  return {format:'citation-graph', version:2, name: name || (G.roots.size ? G.nodes.get([...G.roots][0]).title : 'graph'), savedAt:new Date().toISOString(),
+    roots:[...G.roots], nodes:[...G.nodes.values()].map(n=>{ const o = {}; SAVE_FIELDS.forEach(f=>{ if(n[f]!=null && n[f]!=='') o[f] = n[f]; }); if(n.x!=null){ o.x = Math.round(n.x); o.y = Math.round(n.y); } return o; }),
+    edges:[...G.edges.values()].map(e=>({citing:kOf(e.source), cited:kOf(e.target), cross:!!e.cross || undefined}))};
+}
+function deserialize(data){
+  if(!data || !Array.isArray(data.nodes)) throw new Error('Not a citation-graph file');
+  G = newGraph(); selected = null; hl = null; pathState = {a:null, b:null, nodes:null, edges:null, directed:false};
+  data.nodes.forEach(o=>{
+    if(o.citations!==undefined && o.cites===undefined){ o = {key:o.key, title:o.title, authors:o.authors||[], year:o.year, venue:o.venue, cites:o.citations, refsCount:o.references, doi:o.doi, oa:o.openalex, s2:o.semanticscholar, level:o.depth||0, root:o.root}; }
+    const n = Object.assign(paper({}), o, {expanded:!!o.expanded, hidden:!!o.hidden, pinned:!!o.pinned, side:o.side||0, level:o.level||0});
+    n.key = n.key || keyOf(n);
+    if(n.pinned && n.x!=null){ n.fx = n.x; n.fy = n.y; }
+    G.nodes.set(n.key, n); index(n); if(o.root) G.roots.add(n.key);
+  });
+  (data.roots||[]).forEach(k=>{ if(G.nodes.has(k)) G.roots.add(k); });
+  (data.edges||[]).forEach(e=>{ const s = G.nodes.get(e.citing), t = G.nodes.get(e.cited); if(s&&t) addEdge(s, t, e.cross); });
+  G.ver++;
+  resetView(); fitDone = false; render(); renderList(true); renderAnalysisIfOpen();
+  setTimeout(fit, 900);
+  setStatus(`Loaded “${trunc(data.name||'graph',50)}” — ${G.nodes.size} papers, ${G.edges.size} links.`);
+}
+function libIndex(){ return LS.get('cg.lib', []); }
+function saveToLibrary(name){
+  if(!G) return;
+  const data = serialize(name), id = Date.now().toString(36);
+  let ok = LS.set('cg.g:'+id, data);
+  if(!ok){ clearCache(); ok = LS.set('cg.g:'+id, data); }
+  if(!ok){ setStatus('Browser storage is full — use Export → JSON to save this graph as a file instead.'); return; }
+  const idx = libIndex(); idx.unshift({id, name:data.name, savedAt:data.savedAt, count:data.nodes.length}); LS.set('cg.lib', idx);
+  setStatus(`Saved “${trunc(data.name,50)}” to your library.`); renderLibrary();
+}
+function renderLibrary(){
+  const P = $('pane-library'), idx = libIndex();
+  const defName = G && G.roots.size ? trunc(G.nodes.get([...G.roots][0]).title, 60) : '';
+  P.innerHTML = `
+    <h3 style="margin-top:0">Save current graph</h3>
+    <div style="display:flex;gap:6px"><input id="saveName" class="ctl" style="flex:1;padding:6px 8px;border:1px solid var(--line);border-radius:6px;background:var(--bg)" value="${esc(defName)}" ${G?'':'disabled'} placeholder="Name"><button class="btn small primary" id="saveBtn" ${G?'':'disabled'}>Save</button></div>
+    <div class="muted small" style="margin-top:4px">Saved in this browser only. For backups or sharing, use JSON export/import.</div>
+    <div class="acts2"><button class="btn small" id="importBtn">Import JSON…</button><button class="btn small" id="exportJsonBtn" ${G?'':'disabled'}>Export JSON</button></div>
+    <h3>Saved graphs (${idx.length})</h3>
+    ${idx.length ? `<ul class="rank">${idx.map((g,i)=>`<li data-lib="${i}"><span title="${esc(g.name)}">${esc(trunc(g.name,40))}<br><span class="muted small">${new Date(g.savedAt).toLocaleString()} · ${g.count} papers</span></span>
+      <span class="n" style="display:flex;gap:4px"><button class="btn small" data-load="${i}">Open</button><button class="btn small" data-del="${i}" aria-label="Delete">✕</button></span></li>`).join('')}</ul>` : '<div class="muted small">Nothing saved yet.</div>'}`;
+  if(G) $('saveBtn').onclick = ()=>saveToLibrary($('saveName').value.trim());
+  $('importBtn').onclick = ()=>$('importFile').click();
+  if(G) $('exportJsonBtn').onclick = exportJSON;
+  P.querySelectorAll('[data-load]').forEach(b=>b.onclick = ()=>{ const g = idx[+b.dataset.load], d = LS.get('cg.g:'+g.id, null); if(!d){ setStatus('That saved graph could not be read.'); return; } deserialize(d); });
+  P.querySelectorAll('[data-del]').forEach(b=>b.onclick = ()=>{ const g = idx[+b.dataset.del]; if(!confirm(`Delete “${g.name}”?`)) return; LS.del('cg.g:'+g.id); idx.splice(+b.dataset.del,1); LS.set('cg.lib', idx); renderLibrary(); });
+}
+function exportJSON(){ if(G) download(fileBase()+'.json', JSON.stringify(serialize(), null, 1), 'application/json'); }
+$('importFile').onchange = e=>{
+  const f = e.target.files[0]; if(!f) return;
+  const r = new FileReader();
+  r.onload = ()=>{ try{ deserialize(JSON.parse(r.result)); }catch(err){ setStatus('Import failed: '+err.message); } e.target.value = ''; };
+  r.readAsText(f);
+};
+
+/* =====================================================================
+   CONTROLS (schema-driven)
+   ===================================================================== */
+const ON = {
+  none:()=>{}, render:()=>{ if(G) render(true); }, restyle:()=>{ if(G) render(false); }, queues:makeQueues, theme:applyTheme, colors:()=>{ applyColors(); if(G) render(false); },
+  labels:()=>{ if(G) updateLabels(); }, list:()=>{ if(G){ render(false); renderList(); renderAnalysisIfOpen(); } },
+};
+const YEAR = {t:'number', min:1500, max:2100, ph:'any'};
+const DEFS = {
+  depth:{l:'Depth', t:'select', o:[1,2,3,4,5].map(v=>[v,String(v)]), help:'How many citation hops away from the seed to explore.'},
+  rankBy:{l:'Pick', t:'select', o:[['cites','most cited'],['newest','newest'],['oldest','oldest'],['random','random sample']], help:'Which references / citing papers to keep for each paper.'},
+  useRefs:{l:'References', t:'check'}, kRefs:{l:'per paper', t:'number', min:1, max:200},
+  useCites:{l:'Cited by', t:'check'}, kCites:{l:'per paper', t:'number', min:1, max:200},
+  maxNodes:{l:'Max nodes', t:'number', min:5, max:3000},
+  decay:{l:'Level decay', t:'select', o:[['1','none'],['0.75','×0.75'],['0.5','×0.5'],['0.35','×0.35']], help:'Fetch fewer papers per paper at deeper levels.'},
+  yearFrom:Object.assign({l:'Published from'}, YEAR), yearTo:Object.assign({l:'Published until'}, YEAR),
+  minCitesFetch:{l:'Minimum citations', t:'number', min:0, max:1e6},
+  types:{l:'Document types (none ticked = all)', t:'multi', o:DOC_TYPES, full:true},
+  oaOnly:{l:'Open-access papers only', t:'check'},
+  lang:{l:'Language (ISO code, e.g. en, de)', t:'text', ph:'any'},
+  searchN:{l:'Search results', t:'select', o:[['10','10'],['12','12'],['25','25'],['50','50'],['100','100']]},
+  searchYearFrom:Object.assign({l:'Search: published from'}, YEAR), searchYearTo:Object.assign({l:'Search: published until'}, YEAR),
+  filtersOnSearch:{l:'Apply the fetch filters above to search results too', t:'check', full:true},
+  source:{l:'Data source', t:'select', o:[['auto','Auto (fallback chain below)'],['openalex','OpenAlex only'],['s2','Semantic Scholar only'],['oc','OpenCitations + Crossref only']], full:true},
+  oaKey:{l:'OpenAlex API key (optional, free)', t:'password', ph:'anonymous quota if empty', help:'<a href="https://openalex.org/settings/api" target="_blank" rel="noopener">Get a free key</a> for ~10× the daily quota.'},
+  s2Key:{l:'Semantic Scholar API key (optional, free)', t:'password', ph:'shared pool if empty', help:'<a href="https://www.semanticscholar.org/product/api#api-key-form" target="_blank" rel="noopener">Request a free key</a>.'},
+  s2CiteScan:{l:'Semantic Scholar: citing papers scanned', t:'select', o:[['1000','1,000'],['2000','2,000'],['5000','5,000'],['9000','9,000']], help:'More = better ranking for highly cited papers, more requests.'},
+  ocCiteCap:{l:'OpenCitations: max cited-by list', t:'number', min:10, max:200000, help:'Larger lists download slowly (≈7 KB per citation).'},
+  ocCiterSample:{l:'OpenCitations: citing papers sampled', t:'number', min:10, max:5000},
+  ocRefMax:{l:'OpenCitations: max references read', t:'number', min:10, max:5000},
+  emptyFallback:{l:'When a source returns no references / citations', t:'select', o:[['seeds','try the next source (seed papers only)'],['all','try the next source (every paper; slower)'],['never','accept the empty result']], help:'Needed for new preprints that one database has not processed yet.'},
+  combineSeeds:{l:'Combine all sources for seed papers (most complete, slower)', t:'check', full:true},
+  speed:{l:'Request speed', t:'select', o:[['gentle','Gentle (fewest rate limits)'],['normal','Normal'],['fast','Fast (best with API keys)']], on:'queues'},
+  parallel:{l:'Papers expanded in parallel', t:'number', min:1, max:12},
+  retries:{l:'Retries after rate limit', t:'number', min:0, max:10},
+  maxWait:{l:'Max wait per retry (seconds)', t:'number', min:1, max:600},
+  cacheOn:{l:'Cache API responses in this browser', t:'check'},
+  cacheDays:{l:'Cache lifetime (days)', t:'number', min:0, max:365},
+  exportVisibleOnly:{l:'Export only papers visible after view filters', t:'check', full:true},
+  csvCols:{l:'CSV columns', t:'multi', o:CSV_COLS, full:true},
+  pngScale:{l:'PNG resolution', t:'select', o:[['1','1×'],['2','2×'],['3','3×'],['4','4×']]},
+  // view
+  mode:{t:'seg', o:[['citation','Citations'],['similarity','Similarity']], on:'render'},
+  layout:{l:'Layout', t:'select', o:[['force','Force'],['timeline','Timeline (x = year)'],['radial','Radial by depth'],['hierarchy','Citing ↑ / cited ↓']], on:'render'},
+  colorBy:{l:'Color', t:'select', o:[['year','Year'],['cluster','Cluster'],['depth','Depth'],['side','Citing / cited side'],['cites','Citations'],['pagerank','PageRank'],['simSeed','Similarity to seed'],['venue','Venue'],['author','First author'],['type','Document type'],['oa','Open access']], on:'list'},
+  sizeBy:{l:'Size', t:'select', o:[['cites','Citations'],['pagerank','PageRank'],['degree','Links in graph'],['indeg','Cited within graph'],['refs','References'],['simSeed','Similarity to seed'],['uniform','Uniform']], on:'restyle'},
+  palette:{l:'Palette', t:'select', o:Object.keys(PAL).map(p=>[p, p[0].toUpperCase()+p.slice(1)]), on:'list'},
+  reversePalette:{l:'Reverse palette', t:'check', on:'list'},
+  sizeScale:{l:'Node size', t:'range', min:0.2, max:3, step:0.1, on:'restyle'},
+  labelMode:{l:'Labels', t:'select', o:[['author-year','Author, year'],['title','Title'],['short','Short title'],['year','Year'],['none','None']], on:'labels'},
+  labelTopN:{l:'Label top N nodes', t:'range', min:0, max:500, step:5, on:'labels'},
+  labelSize:{l:'Label size', t:'range', min:6, max:20, step:0.5, on:'labels'},
+  arrows:{l:'Arrowheads', t:'check', on:'restyle'},
+  crossLinks:{l:'Show links between non-seed papers', t:'check', on:'list'},
+  edgeOpacity:{l:'Edge opacity', t:'range', min:0.03, max:1, step:0.01, on:'colors'},
+  edgeWidth:{l:'Edge width', t:'range', min:0.3, max:5, step:0.1, on:'restyle'},
+  refColor:{l:'“Cites” color', t:'color', on:'colors'}, citeColor:{l:'“Cited by” color', t:'color', on:'colors'},
+  simK:{l:'Similar neighbours per paper', t:'range', min:1, max:20, step:1, on:'list'},
+  simMin:{l:'Minimum similarity', t:'range', min:0, max:0.6, step:0.01, on:'list'},
+  wCouple:{l:'Weight: shared references', t:'range', min:0, max:1, step:0.05, on:'list'},
+  wCocite:{l:'Weight: cited together', t:'range', min:0, max:1, step:0.05, on:'list'},
+  wDirect:{l:'Weight: direct citation', t:'range', min:0, max:1, step:0.05, on:'list'},
+  linkDist:{l:'Link distance', t:'range', min:10, max:250, step:5, on:'render'},
+  charge:{l:'Repulsion', t:'range', min:0, max:600, step:10, on:'render'},
+  collide:{l:'Node spacing', t:'range', min:0, max:40, step:1, on:'render'},
+  gravity:{l:'Centering', t:'range', min:0, max:0.5, step:0.01, on:'render'},
+  freeze:{l:'Freeze layout', t:'check', on:'render'},
+  vYearFrom:Object.assign({l:'Show from year'}, YEAR, {on:'list'}), vYearTo:Object.assign({l:'Show until year'}, YEAR, {on:'list'}),
+  vMaxDepth:{l:'Show up to depth', t:'select', o:[['all','all'],['1','1'],['2','2'],['3','3'],['4','4']], on:'list'},
+  vMinCites:{l:'Show min. citations', t:'number', min:0, max:1e6, on:'list'},
+  hideIsolated:{l:'Hide unconnected papers', t:'check', on:'list'},
+};
+const bound = [];
+function ctl(k, opt={}){
+  const d = DEFS[k], wrap = document.createElement(d.t==='seg' ? 'span' : 'label');
+  wrap.className = 'ctl' + (opt.stack ? ' stack' : '') + (d.full ? ' full' : '');
+  const lab = d.l ? `<span>${d.l}</span>` : '';
+  let get, set;
+  if(d.t==='check'){
+    wrap.innerHTML = `<input type="checkbox">${lab}`; if(opt.stack){ wrap.classList.remove('stack'); }
+    const i = wrap.querySelector('input'); get = ()=>i.checked; set = v=>i.checked = !!v; i.onchange = ()=>commit();
+  } else if(d.t==='select'){
+    wrap.innerHTML = `${lab}<select>${d.o.map(([v,t])=>`<option value="${esc(v)}">${esc(t)}</option>`).join('')}</select>`;
+    const s = wrap.querySelector('select'); get = ()=>s.value; set = v=>s.value = String(v); s.onchange = ()=>commit();
+  } else if(d.t==='seg'){
+    wrap.className = 'seg'; wrap.innerHTML = d.o.map(([v,t])=>`<button type="button" data-v="${v}">${t}</button>`).join('');
+    let cur; get = ()=>cur; set = v=>{ cur = v; wrap.querySelectorAll('button').forEach(b=>b.classList.toggle('on', b.dataset.v===v)); };
+    wrap.querySelectorAll('button').forEach(b=>b.onclick = ()=>{ set(b.dataset.v); commit(); });
+  } else if(d.t==='range'){
+    wrap.innerHTML = `${lab}<span style="display:flex;gap:6px;align-items:center"><input type="range" min="${d.min}" max="${d.max}" step="${d.step}"><span class="val"></span></span>`;
+    const i = wrap.querySelector('input'), vEl = wrap.querySelector('.val');
+    get = ()=>+i.value; set = v=>{ i.value = v; vEl.textContent = +(+v).toFixed(2); }; i.oninput = ()=>{ vEl.textContent = +(+i.value).toFixed(2); commit(); };
+  } else if(d.t==='multi'){
+    wrap.classList.add('stack'); wrap.innerHTML = `${lab}<span class="multi">${d.o.map(([v,t])=>`<label><input type="checkbox" value="${v}">${t}</label>`).join('')}</span>`;
+    const boxes = [...wrap.querySelectorAll('input')];
+    get = ()=>boxes.filter(b=>b.checked).map(b=>b.value); set = v=>boxes.forEach(b=>b.checked = (v||[]).includes(b.value)); boxes.forEach(b=>b.onchange = ()=>commit());
+  } else if(d.t==='color'){
+    wrap.innerHTML = `${lab}<span style="display:flex;gap:4px;align-items:center"><input type="color" style="width:34px;height:24px;border:none;background:none;padding:0"><button type="button" class="btn small">reset</button></span>`;
+    const i = wrap.querySelector('input'), r = wrap.querySelector('button');
+    get = ()=>i.value; set = v=>{ i.value = v || cssColor(k==='refColor' ? '--ref' : '--cite'); };
+    i.oninput = ()=>commit(); r.onclick = e=>{ e.preventDefault(); settings[k] = ''; saveSettings(); applyColors(); set(''); if(G) render(false); };
+  } else {
+    wrap.innerHTML = `${lab}<input type="${d.t}" ${d.min!=null?`min="${d.min}"`:''} ${d.max!=null?`max="${d.max}"`:''} placeholder="${d.ph||''}" autocomplete="off">`;
+    const i = wrap.querySelector('input'); get = ()=>i.value; set = v=>i.value = v==null ? '' : v;
+    i.addEventListener(d.t==='number' ? 'change' : 'input', ()=>commit());
+  }
+  if(d.help && opt.stack){ const h = document.createElement('span'); h.className = 'help'; h.innerHTML = d.help; wrap.appendChild(h); }
+  else if(d.help) wrap.title = d.help.replace(/<[^>]+>/g,'');
+  function commit(){ let v = get(); if(d.t==='number' && v!=='' && d.min!=null && !isNaN(+v)){ v = Math.max(d.min, Math.min(d.max, +v)); set(v); } settings[k] = v; saveSettings(); (ON[d.on||'none'])(); syncControls(entry); }
+  set(settings[k]);
+  const entry = {k, set};
+  bound.push(entry);
+  return wrap;
+}
+function syncControls(skip){ bound.forEach(b=>{ if(b!==skip) b.set(settings[b.k]); }); }
+function cssColor(v){ const c = getComputedStyle(document.documentElement).getPropertyValue(v).trim(); try{ return d3.color(c).formatHex(); }catch(e){ return '#888888'; } }
+function applyColors(){
+  const r = document.documentElement.style;
+  settings.refColor ? r.setProperty('--ref', settings.refColor) : r.removeProperty('--ref');
+  settings.citeColor ? r.setProperty('--cite', settings.citeColor) : r.removeProperty('--cite');
+  r.setProperty('--edge-op', flt(settings.edgeOpacity,0.25,0.01,1));
+}
+function applyTheme(){
+  const t = settings.theme;
+  if(t==='auto') document.documentElement.removeAttribute('data-theme'); else document.documentElement.setAttribute('data-theme', t);
+  $('themeBtn').textContent = 'Theme: '+t;
+  bound.filter(b=>b.k==='refColor'||b.k==='citeColor').forEach(b=>b.set(settings[b.k]));
+}
+function buildTopControls(){
+  const C = $('controls');
+  ['depth','rankBy','useRefs','kRefs','useCites','kCites','maxNodes','decay'].forEach(k=>C.appendChild(ctl(k)));
+  const g = document.createElement('button'); g.className = 'btn small'; g.textContent = 'More fetch options…'; g.onclick = ()=>openSettings('fetch'); C.appendChild(g);
+  const s = document.createElement('span'); s.id = 'srcInfo'; s.className = 'muted small'; C.appendChild(s);
+}
+function buildToolbar(){
+  const T = $('toolbar');
+  T.appendChild(ctl('mode'));
+  ['layout','colorBy','sizeBy'].forEach(k=>T.appendChild(ctl(k)));
+  const sp = document.createElement('span'); sp.className = 'sp'; T.appendChild(sp);
+  [['View options','viewBtn'],['Grow +1 level','growBtn'],['Fit','fitBtn'],['Export ▾','exportBtn'],['Save','saveQuick']].forEach(([t,id])=>{ const b = document.createElement('button'); b.className = 'btn small'; b.id = id; b.textContent = t; T.appendChild(b); });
+  $('viewBtn').onclick = ()=>togglePop('viewPanel');
+  $('exportBtn').onclick = ()=>togglePop('exportMenu');
+  $('growBtn').onclick = growLevel;
+  $('fitBtn').onclick = fit;
+  $('saveQuick').onclick = ()=>{ showTab('library'); const i = $('saveName'); if(i){ i.focus(); i.select(); } };
+}
+function buildViewPanel(){
+  const P = $('viewPanel');
+  const sec = (title, keys)=>{ const h = document.createElement('h4'); h.textContent = title; P.appendChild(h); keys.forEach(k=>P.appendChild(ctl(k))); };
+  sec('Appearance', ['palette','reversePalette','sizeScale','labelMode','labelTopN','labelSize']);
+  sec('Edges', ['arrows','crossLinks','edgeOpacity','edgeWidth','refColor','citeColor']);
+  sec('Similarity view', ['simK','simMin','wCouple','wCocite','wDirect']);
+  sec('Layout physics', ['linkDist','charge','collide','gravity','freeze']);
+  const rh = document.createElement('div'); rh.className = 'acts2'; rh.innerHTML = '<button class="btn small" id="reheat">Re-run layout</button><button class="btn small" id="unpinAll">Unpin all</button>'; P.appendChild(rh);
+  sec('Filters (view only)', ['vYearFrom','vYearTo','vMaxDepth','vMinCites','hideIsolated']);
+  const hb = document.createElement('div'); hb.className = 'acts2'; hb.innerHTML = '<button class="btn small" id="unhide">Show hidden papers</button><button class="btn small" id="resetView">Reset view settings</button>'; P.appendChild(hb);
+  $('reheat').onclick = ()=>{ if(G){ settings.freeze = false; saveSettings(); syncControls(); VIS.nodes.forEach(n=>{ if(!n.pinned){ n.fx = null; n.fy = null; } }); render(true); fitDone = false; } };
+  $('unpinAll').onclick = ()=>{ if(G){ G.nodes.forEach(n=>{ n.pinned = false; n.fx = null; n.fy = null; }); render(true); } };
+  $('unhide').onclick = ()=>{ if(G){ let c = 0; G.nodes.forEach(n=>{ if(n.hidden){ n.hidden = false; c++; } }); G.ver++; render(true); renderList(); setStatus(`${c} hidden paper${c===1?'':'s'} restored.`); } };
+  $('resetView').onclick = ()=>{ Object.keys(DEFS).forEach(k=>{ if(DEFS[k].on && k!=='mode') settings[k] = JSON.parse(JSON.stringify(DEFAULTS[k])); }); saveSettings(); syncControls(); applyColors(); if(G){ render(true); renderList(); } };
+}
+function buildExportMenu(){
+  const M = $('exportMenu');
+  const items = [['PNG image','png'],['SVG image','svg'],null,['JSON (re-importable)','json'],['GraphML (Gephi, Cytoscape, yEd)','graphml'],['GEXF (Gephi)','gexf'],null,['CSV – papers','csv'],['CSV – links','csvl'],['BibTeX','bib'],['RIS (Zotero, EndNote, Mendeley)','ris'],null,['Export settings…','set']];
+  M.innerHTML = items.map(it=>it ? `<button data-x="${it[1]}">${it[0]}</button>` : '<div class="sep"></div>').join('');
+  const fns = {png:exportPNG, svg:exportSVG, json:exportJSON, graphml:exportGraphML, gexf:exportGEXF, csv:exportCSV, csvl:exportEdgesCSV, bib:exportBib, ris:exportRIS, set:()=>openSettings('export')};
+  M.querySelectorAll('[data-x]').forEach(b=>b.onclick = ()=>{ closePops(); if(!G && b.dataset.x!=='set') return; try{ fns[b.dataset.x](); }catch(e){ setStatus('Export failed: '+e.message); } });
+}
+function togglePop(id){ const el = $(id), was = el.hidden; closePops(); el.hidden = !was; }
+function closePops(){ $('viewPanel').hidden = true; $('exportMenu').hidden = true; }
+
+/* ---------- settings dialog ---------- */
+const STABS = [
+  ['fetch','Fetching', ()=>[ note('These filters are applied while fetching, before the per-paper limits, so you get e.g. the 12 most-cited <i>reviews since 2015</i>.'),
+     ...['yearFrom','yearTo','minCitesFetch','lang','types','oaOnly'].map(k=>ctl(k,{stack:true})),
+     note('Search', true), ...['searchN','searchYearFrom','searchYearTo','filtersOnSearch'].map(k=>ctl(k,{stack:true})),
+     note('Graph size', true), ...['depth','rankBy','kRefs','kCites','maxNodes','decay'].map(k=>ctl(k,{stack:true}))]],
+  ['sources','Sources', ()=>[ note('Google Scholar has no public API and blocks automated access, so these open databases are used. Every result links to Google Scholar.'),
+     ctl('source',{stack:true}), orderWidget(), ...['emptyFallback','combineSeeds','oaKey','s2Key','s2CiteScan','ocCiteCap','ocCiterSample','ocRefMax'].map(k=>ctl(k,{stack:true}))]],
+  ['perf','Performance', ()=>[ ...['speed','parallel','retries','maxWait','cacheOn','cacheDays'].map(k=>ctl(k,{stack:true})), clearCacheBtn()]],
+  ['export','Export', ()=>['exportVisibleOnly','pngScale','csvCols'].map(k=>ctl(k,{stack:true}))],
+  ['keys','Shortcuts', ()=>[ note(`<div class="kv" style="font-size:13px;color:var(--ink)">
+     <kbd>/</kbd><span>Focus search</span><kbd>Esc</kbd><span>Clear selection, highlight & path</span><kbd>F</kbd><span>Fit graph to screen</span>
+     <kbd>E</kbd><span>Expand selected paper</span><kbd>H</kbd><span>Hide selected paper</span><kbd>P</kbd><span>Pin / unpin selected paper</span>
+     <kbd>G</kbd><span>Grow graph by one level</span><kbd>S</kbd><span>Switch citation / similarity view</span><kbd>L</kbd><span>Cycle layouts</span>
+     <span>Double-click</span><span>Expand a paper</span><span>Shift + click</span><span>Set citation-path start, then end</span><span>Drag</span><span>Move a paper (pinned papers stay put)</span></div>
+     <p style="margin-top:12px">Tip: open the app with <code>#q=your title</code> at the end of the URL to search immediately.</p>`, false, true)]],
+];
+function note(html, isHeading, full){ const d = document.createElement('div'); d.className = 'full'; d.innerHTML = isHeading ? `<b style="display:block;margin-top:6px">${html}</b>` : `<p>${html}</p>`; return d; }
+function clearCacheBtn(){ const b = document.createElement('button'); b.className = 'btn small full'; b.style.justifySelf = 'start'; b.textContent = 'Clear response cache'; b.onclick = ()=>{ clearCache(); mem.clear(); b.textContent = 'Cache cleared'; }; return b; }
+function orderWidget(){
+  const box = document.createElement('div'); box.className = 'ctl stack full';
+  const draw = ()=>{
+    box.innerHTML = '<span>Auto mode: order and enabled sources</span>' + settings.order.map((s,i)=>`<div class="srcrow"><input type="checkbox" data-en="${s}" ${settings.enabled[s]?'checked':''}><span>${i+1}. ${NAMES[s]}</span>
+      <button class="btn small" data-up="${i}" ${i===0?'disabled':''}>↑</button><button class="btn small" data-dn="${i}" ${i===settings.order.length-1?'disabled':''}>↓</button></div>`).join('');
+    box.querySelectorAll('[data-en]').forEach(c=>c.onchange = ()=>{ settings.enabled[c.dataset.en] = c.checked; saveSettings(); });
+    box.querySelectorAll('[data-up],[data-dn]').forEach(b=>b.onclick = e=>{ e.preventDefault(); const i = +(b.dataset.up ?? b.dataset.dn), j = b.dataset.up!=null ? i-1 : i+1; [settings.order[i], settings.order[j]] = [settings.order[j], settings.order[i]]; saveSettings(); draw(); });
+  };
+  draw(); return box;
+}
+function openSettings(tab){
+  const T = $('settingsTabs'), B = $('settingsBody');
+  for(let i=bound.length-1;i>=0;i--) if(bound[i].dlg) bound.splice(i,1);
+  T.innerHTML = STABS.map(([id,t])=>`<button class="tab" data-st="${id}">${t}</button>`).join('');
+  const show = id=>{
+    T.querySelectorAll('.tab').forEach(b=>b.classList.toggle('on', b.dataset.st===id));
+    for(let i=bound.length-1;i>=0;i--) if(bound[i].dlg) bound.splice(i,1);
+    const n0 = bound.length;
+    B.innerHTML = ''; const g = document.createElement('div'); g.className = 'grid';
+    STABS.find(s=>s[0]===id)[2]().forEach(el=>g.appendChild(el)); B.appendChild(g);
+    bound.slice(n0).forEach(b=>b.dlg = true);
+  };
+  T.querySelectorAll('.tab').forEach(b=>b.onclick = ()=>show(b.dataset.st));
+  show(tab || 'fetch');
+  $('settings').showModal();
+}
+$('settingsBtn').onclick = ()=>openSettings('fetch');
+$('closeSettings').onclick = ()=>$('settings').close();
+$('resetSettings').onclick = ()=>{ if(!confirm('Reset all settings (API keys are kept)?')) return; const keep = {oaKey:settings.oaKey, s2Key:settings.s2Key};
+  Object.assign(settings, JSON.parse(JSON.stringify(DEFAULTS)), keep); saveSettings(); makeQueues(); applyTheme(); applyColors(); syncControls(); $('settings').close(); if(G){ render(true); renderList(); } };
+
+/* =====================================================================
+   MISC UI
+   ===================================================================== */
+function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function trunc(s, n){ s = String(s||''); return s.length>n ? s.slice(0,n-1)+'…' : s; }
+function fmt(n){ return n==null ? '–' : Number(n).toLocaleString(); }
+function authorLine(p){ const a = p.authors||[]; return a.length ? a[0] + (a.length>2?' et al.':a.length===2?' & '+a[1]:'') : 'Unknown authors'; }
+function citationText(p){
+  const a = p.authors||[], names = a.length>20 ? a.slice(0,19).concat(['…', a[a.length-1]]) : a;
+  return `${names.join(', ')}${names.length?' ':''}(${p.year||'n.d.'}). ${p.title}.${p.venue?' '+p.venue+'.':''}${p.doi?' https://doi.org/'+p.doi:''}`;
+}
+function copyText(t, msg){
+  const done = ()=>setStatus(msg);
+  if(navigator.clipboard && window.isSecureContext) navigator.clipboard.writeText(t).then(done, ()=>fallback());
+  else fallback();
+  function fallback(){ const ta = document.createElement('textarea'); ta.value = t; document.body.appendChild(ta); ta.select(); try{ document.execCommand('copy'); done(); }catch(e){ setStatus('Copy failed'); } ta.remove(); }
+}
+function setStatus(t){ $('statusText').textContent = t; }
+function busy(b){ $('cancelBtn').hidden = !b; $('growBtn') && ($('growBtn').disabled = b); if(!b){ fitDone = false; setTimeout(fit, 1200); } }
+function showSource(){ const s = $('srcInfo'); if(s) s.textContent = lastSource ? 'Data: '+NAMES[lastSource] : ''; }
+function showTab(t){
+  document.querySelectorAll('#right .tab').forEach(b=>b.classList.toggle('on', b.dataset.tab===t));
+  ['details','analysis','library'].forEach(x=>$('pane-'+x).hidden = x!==t);
+  if(t==='analysis') renderAnalysis(); if(t==='library') renderLibrary();
+}
+document.querySelectorAll('#right .tab').forEach(b=>b.onclick = ()=>showTab(b.dataset.tab));
+$('cancelBtn').onclick = ()=>{ cancelFlag = true; setStatus('Stopping…'); };
+$('searchForm').onsubmit = e=>{ e.preventDefault(); doSearch($('q').value); };
+$('themeBtn').onclick = ()=>{ settings.theme = {auto:'light', light:'dark', dark:'auto'}[settings.theme] || 'auto'; saveSettings(); applyTheme(); if(G) render(false); };
+let resizeT = null;
+window.addEventListener('resize', ()=>{ if(G){ updateAxis(); clearTimeout(resizeT); resizeT = setTimeout(fit, 350); } });
+document.addEventListener('keydown', e=>{
+  const tag = (e.target.tagName||'').toLowerCase();
+  if(['input','textarea','select'].includes(tag) || e.metaKey || e.ctrlKey || e.altKey || $('settings').open) return;
+  const n = selected && G && G.nodes.get(selected);
+  const k = e.key.toLowerCase();
+  if(e.key==='/'){ e.preventDefault(); $('q').focus(); }
+  else if(e.key==='Escape'){ hl = null; closePops(); if(G){ clearPath(); select(null); } setStatus(''); }
+  else if(k==='f') fit();
+  else if(k==='e' && n) expandOne(n);
+  else if(k==='h' && n){ n.hidden = true; G.ver++; selected = null; render(false); renderList(); }
+  else if(k==='p' && n){ n.pinned = !n.pinned; if(n.pinned){ n.fx = n.x; n.fy = n.y; } else { n.fx = null; n.fy = null; } applyHighlight(); showDetails(n, true); }
+  else if(k==='g') growLevel();
+  else if(k==='s'){ settings.mode = settings.mode==='citation' ? 'similarity' : 'citation'; saveSettings(); syncControls(); render(true); renderAnalysisIfOpen(); }
+  else if(k==='l'){ const L = ['force','timeline','radial','hierarchy']; settings.layout = L[(L.indexOf(settings.layout)+1)%L.length]; saveSettings(); syncControls(); render(true); }
+});
+
+/* ---------- init ---------- */
+buildTopControls(); buildToolbar(); buildViewPanel(); buildExportMenu();
+applyTheme(); applyColors(); renderLibrary();
+if(location.hash.startsWith('#q=')){ const q = decodeURIComponent(location.hash.slice(3)); $('q').value = q; doSearch(q); }
+</script>
+</body>
+</html>
