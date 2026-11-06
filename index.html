@@ -156,6 +156,22 @@ dialog .dfoot{display:flex;justify-content:space-between;gap:8px;padding:12px 18
 dialog p{font-size:12.5px;color:var(--muted);margin:4px 0}
 .srcrow{display:flex;gap:8px;align-items:center;padding:6px 8px;border:1px solid var(--line);border-radius:8px;margin:4px 0;color:var(--ink);font-size:13px}
 .srcrow span{flex:1}
+/* seeds */
+.node circle.halo{fill:none;stroke-width:3;pointer-events:none;animation:seedPulse 2.4s ease-in-out infinite}
+@keyframes seedPulse{0%,100%{stroke-opacity:.95}50%{stroke-opacity:.3}}
+@media (prefers-reduced-motion: reduce){.node circle.halo{animation:none}}
+.node.root text{font-weight:700}
+#seedDock{position:absolute;top:12px;right:12px;display:flex;flex-direction:column;gap:4px;align-items:flex-end;max-width:240px;z-index:3}
+#seedDock button{display:flex;gap:6px;align-items:center;max-width:100%;border:1px solid var(--line);background:var(--panel);border-radius:14px;padding:3px 9px 3px 3px;font-size:12px;cursor:pointer;box-shadow:var(--shadow)}
+#seedDock button:hover{background:var(--hover)}
+#seedDock button span:last-child{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sn{display:inline-flex;align-items:center;justify-content:center;min-width:18px;height:18px;border-radius:9px;color:#fff;font-size:10.5px;font-weight:700;flex:none;padding:0 4px;margin-right:2px}
+#tip{position:absolute;pointer-events:none;max-width:320px;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:7px 10px;font-size:12.5px;box-shadow:var(--shadow);z-index:7;line-height:1.35}
+#tip b{display:block;margin-bottom:2px}
+.ovsum{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin:8px 0}
+.ovsum div{border:1px solid var(--line);border-radius:8px;padding:6px 8px;font-size:12px;color:var(--muted)}
+.ovsum b{display:block;font-size:17px;color:var(--ink)}
+.star{color:#e0a800}
 kbd{font:12px ui-monospace,monospace;border:1px solid var(--line);border-bottom-width:2px;border-radius:4px;padding:0 5px;background:var(--bg)}
 @media (max-width:1100px){ main{grid-template-columns:280px 1fr 320px} }
 @media (max-width:980px){
@@ -189,7 +205,9 @@ kbd{font:12px ui-monospace,monospace;border:1px solid var(--line);border-bottom-
     <div id="toolbar" hidden></div>
     <div id="graphWrap">
       <svg id="graph"></svg>
-      <div id="empty"><div><b>No graph yet</b><br>Search a title, DOI (e.g. 10.1109/CVPR.2016.90) or arXiv ID (e.g. 1706.03762). Each node is a paper; arrows point from a paper to the papers it cites. Switch to <b>Similarity</b> view for a Connected-Papers-style map.</div></div>
+      <div id="empty"><div><b>No graph yet</b><br>Search a title, DOI (e.g. 10.1109/CVPR.2016.90) or arXiv ID (e.g. 1706.03762), then press <b>Build graph</b>. Each node is a paper; arrows point from a paper to the papers it cites.<br><br><b>Comparing papers?</b> Press <b>+ Seed</b> on 2–5 papers and build a combined graph. The <b>Overlap</b> tab then lists exactly where they intersect.</div></div>
+      <div id="seedDock" hidden></div>
+      <div id="tip" hidden></div>
       <div id="legend" hidden></div>
       <div id="viewPanel" class="pop" hidden></div>
       <div id="exportMenu" class="menu" hidden></div>
@@ -197,8 +215,9 @@ kbd{font:12px ui-monospace,monospace;border:1px solid var(--line);border-bottom-
     </div>
   </div>
   <aside id="right">
-    <div class="tabs"><button class="tab on" data-tab="details">Details</button><button class="tab" data-tab="analysis">Analysis</button><button class="tab" data-tab="library">Library</button></div>
+    <div class="tabs"><button class="tab on" data-tab="details">Details</button><button class="tab" data-tab="overlap">Overlap</button><button class="tab" data-tab="analysis">Analysis</button><button class="tab" data-tab="library">Library</button></div>
     <div class="pane" id="pane-details"><div class="muted">Click a node to see details. Double-click a node to expand it.</div></div>
+    <div class="pane" id="pane-overlap" hidden></div>
     <div class="pane" id="pane-analysis" hidden></div>
     <div class="pane" id="pane-library" hidden></div>
   </aside>
@@ -239,7 +258,7 @@ const DEFAULTS = {
   labelMode:'author-year', labelTopN:40, labelSize:10.5, arrows:true, edgeOpacity:0.25, edgeWidth:1,
   refColor:'', citeColor:'', linkDist:55, charge:60, collide:3, gravity:0.04, freeze:false,
   vYearFrom:'', vYearTo:'', vMaxDepth:'all', vMinCites:0, hideIsolated:false,
-  emptyFallback:'seeds', combineSeeds:false,
+  emptyFallback:'seeds', combineSeeds:false, showShared:'all', overlapDepth:'1', prevColorBy:'',
   simK:4, simMin:0.05, wCouple:1, wCocite:1, wDirect:0.5, theme:'auto',
   // export
   exportVisibleOnly:false, csvCols:['title','authors','year','venue','type','citations','references','doi','depth','cluster'], pngScale:'2',
@@ -466,6 +485,12 @@ const OA = (()=>{
       const j = await get(`/works?filter=${f}${order}&per_page=${Math.min(100,n)}&select=${SEL}`);
       return {p, list: rankList((j&&j.results||[]).map(norm), n)};
     },
+    resolve,
+    async citingBoth(a, b){
+      const A = [a.oa, ...(a.oaAlt||[])].join('|'), B = [b.oa, ...(b.oaAlt||[])].join('|');
+      const j = await get(`/works?filter=${filters('cites:'+A+',cites:'+B, fetchFilters())}&sort=cited_by_count:desc&per_page=100&select=${SEL}`);
+      return (j&&j.results||[]).map(norm);
+    },
     async citingAny(oaIds){
       const j = await get(`/works?filter=cites:${oaIds.slice(0,100).join('|')}&sort=cited_by_count:desc&per_page=100&select=${SEL}`);
       return (j&&j.results||[]).map(norm);
@@ -664,6 +689,11 @@ async function call(op, p, ...args){
 let G = null;
 const kOf = x => (x && x.key) || x;
 function newGraph(){ return {nodes:new Map(), edges:new Map(), byDoi:new Map(), byOa:new Map(), byS2:new Map(), byArxiv:new Map(), roots:new Set(), simEdges:[], ver:0, M:null}; }
+const SEED_COLORS = ['#e15759','#4e79a7','#59a14f','#f28e2b','#b07aa1','#17becf','#9c755f','#d37295'];
+const SHARED_COLOR = '#8e44ad', SHARED_ALL_COLOR = '#4a148c';
+function seedIndex(k){ return G ? [...G.roots].indexOf(k) : -1; }
+function seedColor(k){ const i = seedIndex(k); return i<0 ? NA_SEED : SEED_COLORS[i % SEED_COLORS.length]; }
+const NA_SEED = '#9aa3ad';
 function keyOf(p){ return p.doi ? 'doi:'+p.doi : p.arxiv ? 'arxiv:'+p.arxiv.toLowerCase() : p.oa ? 'oa:'+p.oa : 's2:'+p.s2; }
 function merge(a, b){
   for(const k of Object.keys(b)){
@@ -760,10 +790,15 @@ async function buildGraph(roots){
   });
   resetView(); render(); showTab('details'); showDetails(G.nodes.get([...G.roots][0]), true);
   busy(true);
+  const multi = G.roots.size >= 2;
+  if(multi && settings.colorBy!=='seeds'){ settings.prevColorBy = settings.colorBy; settings.colorBy = 'seeds'; saveSettings(); syncControls(); }
+  else if(!multi && settings.colorBy==='seeds'){ settings.colorBy = settings.prevColorBy || 'year'; saveSettings(); syncControls(); }
   const frontier = [...G.roots].map(k=>G.nodes.get(k));
   const errors = await runLevels(frontier, o.depth, o);
   crossEdges();
+  if(multi && !cancelFlag) errors.push(...await findShared(true));
   finish(errors);
+  if(multi && G.nodes.size > G.roots.size) showTab('overlap');
 }
 async function growLevel(){
   if(!G) return;
@@ -817,7 +852,7 @@ function addPaperToGraph(p){
    METRICS: degree, PageRank, similarity, clusters
    ===================================================================== */
 function ensureMetrics(){
-  const sig = G.ver+'|'+settings.mode+'|'+settings.simK+'|'+settings.simMin+'|'+settings.wCouple+'|'+settings.wCocite+'|'+settings.wDirect+'|'+settings.crossLinks;
+  const sig = G.ver+'|'+settings.mode+'|'+settings.simK+'|'+settings.simMin+'|'+settings.wCouple+'|'+settings.wCocite+'|'+settings.wDirect+'|'+settings.crossLinks+'|'+settings.overlapDepth+'|'+[...G.roots].join(',');
   if(G.M && G.M.sig === sig) return G.M;
   const nodes = [...G.nodes.values()];
   const edges = [...G.edges.values()].filter(e=>settings.crossLinks || !e.cross);
@@ -846,6 +881,7 @@ function ensureMetrics(){
   const sorted = [...groups.values()].sort((a,b)=>b.length-a.length);
   sorted.forEach((members, ci)=>{ members.forEach(n=>M.cluster.set(n.key, ci)); });
   M.clusters = nameClusters(sorted, nodes);
+  computeOverlap(nodes, edges, M);
   G.M = M;
   return M;
 }
@@ -886,6 +922,34 @@ function computeSimilarity(nodes, edges, idx, M){
   nb.forEach((arr,i)=>{ arr.sort((a,b)=>b[1]-a[1]).slice(0,K).forEach(([j,s])=>{ const a = Math.min(i,j), b = Math.max(i,j), key = 's:'+nodes[a].key+'|'+nodes[b].key; if(!out.has(key)) out.set(key, {key, source:nodes[a].key, target:nodes[b].key, w:s}); }); });
   G.simEdges = [...out.values()];
   M.sims = sims; M.idx = idx; M.N = N;
+}
+function computeOverlap(nodes, edges, M){
+  const roots = [...G.roots].filter(k=>G.nodes.has(k) && !G.nodes.get(k).hidden);
+  const adj = new Map(); nodes.forEach(n=>{ if(!n.hidden) adj.set(n.key, []); });
+  edges.forEach(e=>{ const s = kOf(e.source), t = kOf(e.target); if(adj.has(s) && adj.has(t)){ adj.get(s).push(t); adj.get(t).push(s); } });
+  const D = int(settings.overlapDepth,1,1,4);
+  M.dist = new Map(); M.par = new Map();
+  roots.forEach(r=>{
+    const d = new Map([[r,0]]), par = new Map(), q = [r];
+    for(let h=0; h<q.length; h++){ const x = q[h]; for(const y of adj.get(x)||[]) if(!d.has(y)){ d.set(y, d.get(x)+1); par.set(y, x); q.push(y); } }
+    M.dist.set(r, d); M.par.set(r, par);
+  });
+  M.reach = new Map(); M.nearest = new Map(); M.sharedKeys = new Set(); M.sharedAll = new Set();
+  nodes.forEach(n=>{
+    let best = Infinity, near = null;
+    const within = roots.filter(r=>{ if(r===n.key) return false; const v = M.dist.get(r).get(n.key); if(v!=null && v<best){ best = v; near = r; } return v!=null && v<=D; });
+    M.reach.set(n.key, within); if(near) M.nearest.set(n.key, near);
+    if(!G.roots.has(n.key) && roots.length>=2 && within.length>=2){ M.sharedKeys.add(n.key); if(within.length===roots.length) M.sharedAll.add(n.key); }
+  });
+  M.pairs = []; M.bridges = new Set();
+  for(let i=0;i<roots.length;i++) for(let j=i+1;j<roots.length;j++){
+    const a = roots[i], b = roots[j], d = M.dist.get(a).get(b);
+    if(d==null){ M.pairs.push({a, b, dist:null, nodes:[]}); continue; }
+    const path = [b]; let cur = b; const par = M.par.get(a);
+    while(cur!==a){ cur = par.get(cur); path.unshift(cur); }
+    path.forEach(k=>M.bridges.add(k));
+    M.pairs.push({a, b, dist:d, nodes:path});
+  }
 }
 function simBetween(a, b){ const M = G.M; if(!M || !M.sims) return 0; const i = M.idx.get(a), j = M.idx.get(b); if(i==null||j==null) return 0; return M.sims.get(i<j?i*M.N+j:j*M.N+i) || 0; }
 function louvain(n, edges){
@@ -931,6 +995,82 @@ function nameClusters(groups, nodes){
     const words = [...tf].filter(([w,c])=>c>=Math.min(2, members.length)).map(([w,c])=>[w, (c/members.length)*Math.log(1+N/df.get(w))]).sort((a,b)=>b[1]-a[1]).slice(0,3).map(x=>x[0]);
     return {id:i, size:members.length, name: words.length ? words.join(' · ') : (members.length===1 ? trunc(members[0].title, 30) : 'cluster '+(i+1)), keys:members.map(n=>n.key)};
   });
+}
+
+/* =====================================================================
+   SEED OVERLAP: exact shared references / citing papers
+   ===================================================================== */
+async function findShared(silent){
+  if(!G || G.roots.size < 2) return [];
+  const roots = [...G.roots].map(k=>G.nodes.get(k)).filter(n=>n && !n.hidden);
+  if(!silent){ cancelFlag = false; netCalls = 0; busy(true); }
+  const errors = [], BIG = 3000;
+  // 1) every seed's full reference list -> references shared by 2+ seeds
+  const refAcc = new Map();
+  for(const r of roots){
+    if(cancelFlag) break;
+    setStatus(`Overlap: reading all references of seed ${seedIndex(r.key)+1}…`);
+    try{ const {p, list} = await call('refs', r, BIG); merge(r, p); index(r);
+      list.forEach(q=>{ const k = listKey(q); let o = refAcc.get(k); if(!o) refAcc.set(k, o = {p:q, seeds:new Set()}); else merge(o.p, q); o.seeds.add(r.key); }); }
+    catch(e){ errors.push(e); }
+  }
+  let nRefs = 0;
+  for(const o of refAcc.values()){
+    if(o.seeds.size < 2) continue;
+    const first = G.nodes.get([...o.seeds][0]);
+    const {n} = addNode(o.p, 1, first, 'refs'); o.seeds.forEach(sk=>addEdge(G.nodes.get(sk), n)); nRefs++;
+  }
+  // 2) papers citing 2+ seeds: exact OpenAlex AND-query per seed pair, else intersect citing lists
+  const citeAcc = new Map(); let approx = false, oaDone = false;
+  const addCiter = (q, seeds) => { const k = listKey(q); let o = citeAcc.get(k); if(!o) citeAcc.set(k, o = {p:q, seeds:new Set()}); else merge(o.p, q); seeds.forEach(s=>o.seeds.add(s)); };
+  if(sourceOrder().includes('openalex') && !cancelFlag){
+    try{
+      for(const r of roots) if(!r.oa && r.doi){ try{ await OA.resolve(r); index(r); }catch(e){} }
+      if(roots.every(r=>r.oa)){
+        for(let i=0;i<roots.length && !cancelFlag;i++) for(let j=i+1;j<roots.length && !cancelFlag;j++){
+          setStatus(`Overlap: papers citing both seed ${i+1} and seed ${j+1}…`);
+          (await OA.citingBoth(roots[i], roots[j])).forEach(q=>addCiter(q, [roots[i].key, roots[j].key]));
+        }
+        oaDone = !cancelFlag;
+      }
+    }catch(e){ errors.push(e); citeAcc.clear(); }
+  }
+  if(!oaDone && !cancelFlag){
+    approx = true;
+    const lists = new Map();
+    for(const r of roots){
+      if(cancelFlag) break;
+      setStatus(`Overlap: reading papers citing seed ${seedIndex(r.key)+1}…`);
+      try{ const {list} = await call('citedBy', r, BIG); list.forEach(q=>{ const k = listKey(q); if(!lists.has(k)) lists.set(k, {p:q, seeds:new Set()}); lists.get(k).seeds.add(r.key); }); }
+      catch(e){ errors.push(e); }
+    }
+    lists.forEach(o=>{ if(o.seeds.size>=2) addCiter(o.p, [...o.seeds]); });
+  }
+  let nCites = 0;
+  for(const o of citeAcc.values()){
+    const first = G.nodes.get([...o.seeds][0]);
+    const {n} = addNode(o.p, 1, first, 'citedBy'); o.seeds.forEach(sk=>addEdge(n, G.nodes.get(sk))); nCites++;
+  }
+  crossEdges();
+  G.shared = {done:!cancelFlag, approx, refs:nRefs, cites:nCites};
+  if(!silent){
+    render(); busy(false); renderList(); renderAnalysisIfOpen();
+    setStatus(`Overlap search done: ${nRefs} shared reference${nRefs===1?'':'s'}, ${nCites} paper${nCites===1?'':'s'} citing 2+ seeds${approx?' (approximate: based on each seed\'s top citing papers)':''}.`+(errors.length?keyHint(errors):''));
+  }
+  return errors;
+}
+async function markSeed(n){
+  if(!G || !n || G.roots.has(n.key)) return;
+  G.roots.add(n.key); n.level = 0; n.side = 0; n.hidden = false; G.ver++;
+  if(settings.colorBy!=='seeds' && G.roots.size===2){ settings.prevColorBy = settings.colorBy; settings.colorBy = 'seeds'; saveSettings(); syncControls(); }
+  if(!n.expanded) await expandOne(n); else { render(); renderList(); }
+  await findShared(false);
+  showTab('overlap');
+}
+function unmarkSeed(n){
+  if(!G || !n || !G.roots.has(n.key) || G.roots.size < 2) return;
+  G.roots.delete(n.key); n.level = 1; G.ver++;
+  render(); renderList(); renderAnalysisIfOpen(); select(n);
 }
 
 /* =====================================================================
@@ -1016,7 +1156,8 @@ const defs = svg.append('defs');
 const zoomG = svg.append('g').attr('id','zoomG');
 const bgG = zoomG.append('g'), linkG = zoomG.append('g'), nodeG = zoomG.append('g');
 const axisG = svg.append('g').attr('id','axisOverlay');
-const zoom = d3.zoom().scaleExtent([0.05, 8]).on('zoom', e=>{ zoomG.attr('transform', e.transform); updateAxis(); });
+const markG = svg.append('g').attr('id','seedMarks');
+const zoom = d3.zoom().scaleExtent([0.05, 8]).on('zoom', e=>{ zoomG.attr('transform', e.transform); updateAxis(); updateSeedMarks(); $('tip').hidden = true; });
 svg.call(zoom).on('dblclick.zoom', null);
 svg.on('click', e=>{ if(e.target === svg.node()){ hl = null; select(null); closePops(); } });
 const sim = d3.forceSimulation().alphaDecay(0.03)
@@ -1035,6 +1176,10 @@ function visible(){
   const s = settings, yf = int(s.vYearFrom,0), yt = int(s.vYearTo,0), md = s.vMaxDepth==='all' ? 99 : int(s.vMaxDepth,99), mc = int(s.vMinCites,0,0);
   let nodes = [...G.nodes.values()].filter(n=>!n.hidden && (G.roots.has(n.key) ||
     ((!yf || !n.year || n.year>=yf) && (!yt || !n.year || n.year<=yt) && n.level<=md && (n.cites||0)>=mc)));
+  if(G.roots.size>=2 && s.showShared && s.showShared!=='all' && G.M && G.M.sharedKeys){
+    const M = G.M, set = s.showShared==='allseeds' ? M.sharedAll : M.sharedKeys;
+    nodes = nodes.filter(n=>G.roots.has(n.key) || set.has(n.key) || M.bridges.has(n.key));
+  }
   const ks = new Set(nodes.map(n=>n.key));
   const base = s.mode==='similarity' ? G.simEdges : [...G.edges.values()].filter(e=>s.crossLinks || !e.cross);
   const links = base.filter(e=>ks.has(kOf(e.source)) && ks.has(kOf(e.target)));
@@ -1047,7 +1192,7 @@ function computeSizes(nodes, M){
     degree:d=>Math.sqrt((M.inDeg.get(d.key)||0)+(M.outDeg.get(d.key)||0)), indeg:d=>Math.sqrt(M.inDeg.get(d.key)||0),
     pagerank:d=>Math.sqrt(M.pr.get(d.key)||0), simSeed:d=>M.simSeed.get(d.key)||0, uniform:()=>1 };
   const val = fns[by] || fns.cites, mx = d3.max(nodes, val) || 1;
-  nodes.forEach(d=>{ d._r = by==='uniform' ? 7*sc : 3.5 + 15*sc*(val(d)/mx); if(G.roots.has(d.key)) d._r = Math.max(d._r, 7); });
+  nodes.forEach(d=>{ d._r = by==='uniform' ? 7*sc : 3.5 + 15*sc*(val(d)/mx); if(G.roots.has(d.key)) d._r = Math.max(d._r, 12); });
 }
 function buildColor(nodes, M){
   const by = settings.colorBy, seq = seqFn();
@@ -1064,6 +1209,17 @@ function buildColor(nodes, M){
     return {kind:'seq', title, lo:f(lo), hi:f(hi), stops:d3.range(0,1.001,0.1).map(seq)};
   }
   let get, title, label = v=>String(v), fixed = null, all = false;
+  if(by==='seeds'){
+    const roots = [...G.roots], multi = roots.length>=2;
+    const cat = d => G.roots.has(d.key) ? 'k:'+d.key : multi && M.sharedAll.has(d.key) && roots.length>2 ? 'all' : multi && M.sharedKeys.has(d.key) ? 'shared' : M.nearest.has(d.key) ? 'k:'+M.nearest.get(d.key) : null;
+    const col = v => v==='all' ? SHARED_ALL_COLOR : v==='shared' ? SHARED_COLOR : seedColor(v.slice(2));
+    colorOf = d => { const v = cat(d); return v ? col(v) : NA; };
+    const D = int(settings.overlapDepth,1,1,4), cats = [...roots.map(r=>'k:'+r), ...(multi?['shared']:[]), ...(multi && roots.length>2?['all']:[])];
+    const items = cats.map(v=>{ const keys = nodes.filter(d=>cat(d)===v).map(d=>d.key);
+      return {label: v==='shared' ? `Shared by 2+ seeds (≤${D} link${D>1?'s':''})` : v==='all' ? 'Shared by all seeds' : `${seedIndex(v.slice(2))+1}. ${trunc(G.nodes.get(v.slice(2)).title, 34)}`, color:col(v), count:keys.length, keys}; }).filter(it=>it.count || !it.label.startsWith('Shared'));
+    const rest = nodes.filter(d=>!cat(d)); if(rest.length) items.push({label:'Not connected to a seed', color:NA, count:rest.length, keys:rest.map(d=>d.key)});
+    return {kind:'cat', title: multi ? 'Closest seed / shared' : 'Seed', items};
+  }
   if(by==='depth'){ get = d=>d.level; title = 'Depth'; label = v=>v===0 ? 'Seed' : 'Depth '+v; all = true;
     const mx = d3.max(nodes, d=>d.level) || 1; fixed = v=>seq(v/mx); }
   else if(by==='side'){ get = d=>G.roots.has(d.key) ? 'seed' : d.side>0 ? 'ref' : d.side<0 ? 'cite' : 'other'; title = 'Relation to seed'; all = true;
@@ -1102,23 +1258,70 @@ function render(reheat=true){
     .attr('marker-end', !simMode && settings.arrows ? 'url(#arr-base)' : null);
   nodeSel = nodeG.selectAll('g.node').data(nodes, d=>d.key).join(enter=>{
     const g = enter.append('g').attr('class','node');
-    g.append('circle'); g.append('text').attr('dy','0.32em'); g.append('title');
-    g.on('mouseenter', (e,d)=>applyHighlight(d.key)).on('mouseleave', ()=>applyHighlight())
+    g.append('circle'); g.append('circle').attr('class','halo'); g.append('text').attr('dy','0.32em');
+    g.on('mouseenter', (e,d)=>{ applyHighlight(d.key); showTip(e, d); }).on('mousemove', moveTip).on('mouseleave', ()=>{ applyHighlight(); $('tip').hidden = true; })
      .on('click', (e,d)=>{ e.stopPropagation(); if(e.shiftKey){ setPathEnd(d); } else select(d); })
      .on('dblclick', (e,d)=>{ e.stopPropagation(); expandOne(d); })
      .call(d3.drag()
-       .on('start', (e,d)=>{ if(!e.active && !settings.freeze) sim.alphaTarget(0.2).restart(); d.fx = d.x; d.fy = d.y; })
+       .on('start', (e,d)=>{ $('tip').hidden = true; if(!e.active && !settings.freeze) sim.alphaTarget(0.2).restart(); d.fx = d.x; d.fy = d.y; })
        .on('drag', (e,d)=>{ d.fx = e.x; d.fy = e.y; if(settings.freeze){ d.x = e.x; d.y = e.y; ticked(); } })
        .on('end', (e,d)=>{ if(!e.active) sim.alphaTarget(0); if(!d.pinned){ d.fx = null; d.fy = null; lockX([d]); } }));
     return g;
   });
-  nodeSel.select('circle').attr('r', d=>d._r).style('fill', colorOf);
-  nodeSel.select('title').text(d=>`${d.title}\n${authorLine(d)}${d.year?' · '+d.year:''}\n${fmt(d.cites)} citations${M.cluster.has(d.key) && M.clusters[M.cluster.get(d.key)] ? '\nCluster: '+M.clusters[M.cluster.get(d.key)].name : ''}`);
+  nodeSel.select('circle').attr('r', d=>d._r).style('fill', colorOf).style('stroke', d=>G.roots.has(d.key) ? seedColor(d.key) : null);
+  nodeSel.select('circle.halo').attr('r', d=>d._r+6).style('stroke', d=>seedColor(d.key)).attr('display', d=>G.roots.has(d.key) ? null : 'none');
+  nodeSel.filter(d=>G.roots.has(d.key)).raise();
+  const sc = $('showSharedCtl'); if(sc) sc.hidden = G.roots.size < 2;
   applyForces(); lockX(nodes);
   sim.nodes(nodes); sim.force('link').links(links);
   if(settings.freeze){ sim.stop(); ticked(); }
   else sim.alpha(Math.max(sim.alpha(), reheat ? 0.5 : 0.08)).restart();
-  drawBackground(nodes); applyHighlight(); drawLegend(); updateAxis();
+  drawBackground(nodes); applyHighlight(); drawLegend(); updateAxis(); renderSeedDock(); updateSeedMarks();
+}
+/* ---------- seed visibility: dock, off-screen markers, tooltip ---------- */
+function renderSeedDock(){
+  const D = $('seedDock');
+  if(!G || !G.roots.size){ D.hidden = true; return; }
+  D.hidden = false;
+  D.innerHTML = [...G.roots].map((k,i)=>{ const n = G.nodes.get(k); return `<button data-seed="${esc(k)}" title="${esc(n.title)} — click to find it in the graph"><span class="sn" style="background:${seedColor(k)}">${i+1}</span><span>${esc(trunc(n.title, 30))}</span></button>`; }).join('');
+  D.querySelectorAll('[data-seed]').forEach(b=>b.onclick = ()=>{ const n = G.nodes.get(b.dataset.seed); if(n.hidden){ n.hidden = false; G.ver++; render(false); } select(n); centerOn(n); });
+}
+let marksQueued = false;
+function updateSeedMarks(){
+  markG.selectAll('*').remove();
+  if(!G) return;
+  const t = d3.zoomTransform(svg.node()), b = svg.node().getBoundingClientRect(), m = 20, mb = 60, placed = [];
+  VIS.nodes.filter(n=>G.roots.has(n.key) && n.x!=null).forEach(n=>{
+    const x = t.applyX(n.x), y = t.applyY(n.y);
+    if(x>=0 && x<=b.width && y>=0 && y<=b.height) return;
+    let cx = Math.max(m, Math.min(b.width-m, x)), cy = Math.max(m, Math.min(b.height-mb, y));
+    const onSide = cx===m || cx===b.width-m;
+    for(let k=0; k<10 && placed.some(([px,py])=>Math.hypot(px-cx, py-cy) < 28); k++){
+      if(onSide) cy += cy > b.height/2 ? -28 : 28; else cx += cx > b.width/2 ? -28 : 28;
+    }
+    placed.push([cx, cy]);
+    const ang = Math.atan2(y-cy, x-cx)*180/Math.PI, c = seedColor(n.key);
+    const g = markG.append('g').attr('transform', `translate(${cx},${cy})`).style('cursor','pointer').on('click', e=>{ e.stopPropagation(); select(n); centerOn(n); });
+    g.append('path').attr('d','M10,-7L22,0L10,7Z').attr('transform', `rotate(${ang})`).style('fill', c);
+    g.append('circle').attr('r', 12).style('fill', c).style('stroke', 'var(--panel)').style('stroke-width', 2);
+    g.append('text').attr('text-anchor','middle').attr('dy','0.35em').style('fill','#fff').style('font-size','11px').style('font-weight',700).text(seedIndex(n.key)+1);
+    g.append('title').text(`Seed ${seedIndex(n.key)+1} is off-screen: ${n.title} — click to go there`);
+  });
+}
+function showTip(e, d){
+  const T = $('tip'), M = G.M;
+  let extra = '';
+  if(G.roots.has(d.key)) extra = `<div><span class="sn" style="background:${seedColor(d.key)}">${seedIndex(d.key)+1}</span> Seed paper</div>`;
+  else if(G.roots.size>=2 && M && M.reach){ const r = M.reach.get(d.key)||[]; if(r.length) extra = `<div>Linked to seed${r.length>1?'s':''} ${r.map(k=>`<span class="sn" style="background:${seedColor(k)}">${seedIndex(k)+1}</span>`).join('')}${r.length>=2?' <b style="display:inline;color:'+SHARED_COLOR+'">shared</b>':''}</div>`; }
+  const cl = M && M.clusters[M.cluster.get(d.key)];
+  T.innerHTML = `<b>${isStarred(d)?'<span class="star">★</span> ':''}${esc(d.title)}</b><div class="muted">${esc(authorLine(d))}${d.year?' · '+d.year:''}${d.venue?' · '+esc(trunc(d.venue,40)):''}</div>
+    <div>${fmt(d.cites)} citations${cl && cl.size>1 ? ' · <span class="muted">'+esc(cl.name)+'</span>' : ''}</div>${extra}<div class="muted" style="font-size:11.5px;margin-top:3px">Click: details · Double-click: expand</div>`;
+  T.hidden = false; moveTip(e);
+}
+function moveTip(e){
+  const T = $('tip'), W = $('graphWrap'), [x,y] = d3.pointer(e, W);
+  T.style.left = Math.max(4, Math.min(x+16, W.clientWidth - T.offsetWidth - 8))+'px';
+  T.style.top = (y+18+T.offsetHeight > W.clientHeight ? y-T.offsetHeight-12 : y+18)+'px';
 }
 function applyForces(){
   const L = settings.layout, ld = flt(settings.linkDist,55,10,400), ch = flt(settings.charge,60,0,2000), co = flt(settings.collide,3,0,60), gr = flt(settings.gravity,0.04,0,1);
@@ -1162,8 +1365,9 @@ function updateLabels(){
   if(!G) return;
   const mode = settings.labelMode, N = int(settings.labelTopN,40,0,5000), fs = flt(settings.labelSize,10.5,5,30);
   const top = new Set(nodeSel.data().slice().sort((a,b)=>b._r-a._r).slice(0,N).map(d=>d.key));
-  nodeSel.select('text').style('font-size', fs+'px').attr('x', d=>d._r+3)
-    .text(d=>mode==='none' ? '' : (top.has(d.key) || G.roots.has(d.key) || d.key===selected || (pathState.nodes && pathState.nodes.has(d.key))) ? labelText(d, mode) : '');
+  nodeSel.select('text').style('font-size', d=>(G.roots.has(d.key) ? fs+2.5 : fs)+'px').attr('x', d=>d._r+(G.roots.has(d.key) ? 9 : 3))
+    .style('fill', d=>G.roots.has(d.key) ? seedColor(d.key) : null)
+    .text(d=>G.roots.has(d.key) ? `${seedIndex(d.key)+1} · ${labelText(d, mode==='none' ? 'author-year' : mode)}` : mode==='none' ? '' : (top.has(d.key) || d.key===selected || (pathState.nodes && pathState.nodes.has(d.key))) ? labelText(d, mode) : '');
 }
 function ticked(){
   linkSel.each(function(d){
@@ -1172,6 +1376,7 @@ function ticked(){
     this.setAttribute('x1', s.x); this.setAttribute('y1', s.y); this.setAttribute('x2', t.x-dx/L*r); this.setAttribute('y2', t.y-dy/L*r);
   });
   nodeSel.attr('transform', d=>`translate(${d.x||0},${d.y||0})`);
+  if(!marksQueued){ marksQueued = true; requestAnimationFrame(()=>{ marksQueued = false; updateSeedMarks(); }); }
 }
 function applyHighlight(hoverKey){
   if(!G) return;
@@ -1182,7 +1387,7 @@ function applyHighlight(hoverKey){
   if(k){ focus = new Set([k]); linkSel.each(d=>{ const s = kOf(d.source), t = kOf(d.target); if(s===k) focus.add(t); if(t===k) focus.add(s); }); }
   else if(hl) focus = hl.keys;
   else if(pn) focus = pn;
-  nodeSel.classed('dim', d=>focus ? !focus.has(d.key) : false);
+  nodeSel.classed('dim', d=>focus ? !focus.has(d.key) && !G.roots.has(d.key) : false);
   linkSel.classed('path', d=>!simMode && !!(pe && pe.has(d.key)))
     .classed('out', d=>!simMode && !!k && kOf(d.source)===k).classed('in', d=>!simMode && !!k && kOf(d.target)===k)
     .classed('nb', d=>simMode && !!k && (kOf(d.source)===k || kOf(d.target)===k))
@@ -1248,7 +1453,7 @@ function showDetails(p, inGraph){
       ${cl && cl.size>1 ? `<span class="muted">Cluster</span><b>${esc(cl.name)} (${cl.size})</b>` : ''}</div>`;
   }
   const typeName = p.type ? (DOC_TYPES.find(t=>t[0]===p.type)||[0,p.type])[1] : '';
-  const badges = inGraph && G ? (G.roots.has(p.key) ? '<span class="badge">Seed</span>' : `<span class="badge">Depth ${p.level}</span>`) + (p.side>0 ? '<span class="badge">reference side</span>' : p.side<0 ? '<span class="badge">citing side</span>' : '') + (p.expanded ? '<span class="badge">expanded</span>' : '') + (p.pinned ? '<span class="badge">pinned</span>' : '') : '';
+  const badges = inGraph && G ? (G.roots.has(p.key) ? `<span class="badge" style="border-color:${seedColor(p.key)};color:${seedColor(p.key)};font-weight:600">Seed ${seedIndex(p.key)+1}</span>` : `<span class="badge">Depth ${p.level}</span>`) + (p.side>0 ? '<span class="badge">reference side</span>' : p.side<0 ? '<span class="badge">citing side</span>' : '') + (p.expanded ? '<span class="badge">expanded</span>' : '') + (p.pinned ? '<span class="badge">pinned</span>' : '') : '';
   R.innerHTML = `
     <div>${badges}${typeName?`<span class="badge">${esc(typeName)}</span>`:''}${p.isOA?'<span class="badge">open access</span>':''}${p.lang?`<span class="badge">${esc(p.lang)}</span>`:''}</div>
     <h2>${esc(p.title)}</h2>
@@ -1264,9 +1469,13 @@ function showDetails(p, inGraph){
       <span id="pdfLink">${p.oaUrl?`<a href="${esc(p.oaUrl)}" target="_blank" rel="noopener">Open-access PDF</a>`:''}</span>
     </div>
     <div class="acts2">
+      <button class="btn small${isStarred(p)?' on':''}" data-a="star" title="Keep this paper in your reading list (Library tab)">${isStarred(p)?'★ In reading list':'☆ Reading list'}</button>
       ${inGraph?`<button class="btn small" data-a="expand">Expand</button>`:''}
+      ${inGraph && !G.roots.has(p.key) ? `<button class="btn small" data-a="mark" title="Make this paper an extra seed of the current graph and find where it overlaps with the other seeds">Make seed</button>` : ''}
+      ${inGraph && G.roots.has(p.key) && G.roots.size>1 ? `<button class="btn small" data-a="unmark">Remove as seed</button>` : ''}
+      ${!inGraph && G ? `<button class="btn small" data-a="addseed" title="Add to the current graph as an extra seed and find the overlap">Add as seed to graph</button>` : ''}
       <button class="btn small primary" data-a="root">New graph from this</button>
-      <button class="btn small" data-a="seed">+ Seed</button>
+      <button class="btn small" data-a="seed" title="Add to the seed list (left panel) to build a new combined graph">+ Seed</button>
       ${inGraph?`<button class="btn small" data-a="pathA">Path from here</button><button class="btn small" data-a="pathB">Path to here</button>
       <button class="btn small" data-a="pin">${p.pinned?'Unpin':'Pin position'}</button><button class="btn small" data-a="hide">Hide</button>`:''}
       ${!inGraph && G ? `<button class="btn small" data-a="add">Add to graph</button>` : ''}
@@ -1286,6 +1495,10 @@ function showDetails(p, inGraph){
     else if(a==='pin'){ p.pinned = !p.pinned; if(p.pinned){ p.fx = p.x; p.fy = p.y; } else { p.fx = null; p.fy = null; } applyHighlight(); showDetails(p, true); }
     else if(a==='hide'){ p.hidden = true; G.ver++; selected = null; render(false); renderList(); setStatus(`Hidden “${trunc(p.title,40)}”. Restore it in View options.`); }
     else if(a==='add'){ const n = addPaperToGraph(p); if(n) select(n); }
+    else if(a==='addseed'){ const n = addPaperToGraph(p); if(n) markSeed(n); }
+    else if(a==='mark') markSeed(p);
+    else if(a==='unmark') unmarkSeed(p);
+    else if(a==='star'){ toggleStar(p); showDetails(p, inGraph); }
     else if(a==='cite') copyText(citationText(p), 'Citation copied');
     else if(a==='bib') copyText(bibEntry(p, new Set()), 'BibTeX copied');
     else if(a==='cov') checkSources(p);
@@ -1363,9 +1576,10 @@ function renderResults(){
     results.map((p,i)=>`<div class="item" data-i="${i}"><div class="t">${esc(p.title)}</div>
       <div class="m">${esc(authorLine(p))}${p.year?' · '+p.year:''}${p.venue?' · '+esc(trunc(p.venue,40)):''}</div>
       <div class="m">${fmt(p.cites)} citations${p.refsCount!=null?' · '+fmt(p.refsCount)+' references':''}</div>
-      <div class="acts"><button class="btn small primary" data-build="${i}">Build graph</button><button class="btn small" data-seed="${i}">+ Seed</button></div></div>`).join('');
+      <div class="acts"><button class="btn small primary" data-build="${i}">Build graph</button><button class="btn small" data-seed="${i}" title="Add to the seed list to build one combined graph of several papers">+ Seed</button>${G?`<button class="btn small" data-addseed="${i}" title="Add to the current graph as an extra seed and find the overlap">Add to current graph</button>`:''}</div></div>`).join('');
   left.querySelectorAll('[data-build]').forEach(b=>b.onclick = e=>{ e.stopPropagation(); buildGraph([results[+b.dataset.build]]); });
   left.querySelectorAll('[data-seed]').forEach(b=>b.onclick = e=>{ e.stopPropagation(); addSeed(results[+b.dataset.seed]); });
+  left.querySelectorAll('[data-addseed]').forEach(b=>b.onclick = e=>{ e.stopPropagation(); if(!G) return; const n = addPaperToGraph(results[+b.dataset.addseed]); if(n) markSeed(n); });
   left.querySelectorAll('.item').forEach(it=>it.onclick = ()=>{ showTab('details'); showDetails(results[+it.dataset.i], false); });
   const tg = $('toGraph'); if(tg) tg.onclick = ()=>renderList(true);
 }
@@ -1378,7 +1592,7 @@ function renderSeeds(){
   const B = $('seedBox'); B.hidden = !seeds.length; if(!seeds.length) return;
   B.innerHTML = `<div style="font-weight:600;margin-bottom:6px">Seeds (${seeds.length})</div>` +
     seeds.map((s,i)=>`<span class="chip" title="${esc(s.title)}"><span>${esc(trunc(s.title,38))}</span><button data-rm="${i}" aria-label="Remove">×</button></span>`).join('') +
-    `<div class="acts" style="margin-top:6px;display:flex;gap:6px"><button class="btn small primary" id="buildSeeds">Build combined graph</button><button class="btn small" id="clearSeeds">Clear</button></div>`;
+    `<div class="acts" style="margin-top:6px;display:flex;gap:6px"><button class="btn small primary" id="buildSeeds" ${seeds.length<2?'title="Add at least one more seed to compare papers"':''}>${seeds.length>=2?'Build combined graph & find overlap':'Build graph'}</button><button class="btn small" id="clearSeeds">Clear</button></div>`;
   B.querySelectorAll('[data-rm]').forEach(b=>b.onclick = ()=>{ seeds.splice(+b.dataset.rm, 1); renderSeeds(); });
   $('buildSeeds').onclick = ()=>buildGraph(seeds.slice());
   $('clearSeeds').onclick = ()=>{ seeds = []; renderSeeds(); };
@@ -1404,7 +1618,7 @@ function renderList(force){
   if(q) nodes = nodes.filter(n=>(n.title+' '+n.authors.join(' ')+' '+n.venue).toLowerCase().includes(q));
   nodes.sort(cmp);
   $('listTitle').textContent = `Papers in graph (${q ? nodes.length+' of ' : ''}${[...G.nodes.values()].filter(n=>!n.hidden).length})`;
-  $('graphList').innerHTML = nodes.map(n=>`<div class="item${selected===n.key?' sel':''}" data-k="${esc(n.key)}"><div class="t"><span class="dot" style="background:${colorOf(n)}"></span>${esc(n.title)}</div>
+  $('graphList').innerHTML = nodes.map(n=>`<div class="item${selected===n.key?' sel':''}" data-k="${esc(n.key)}"><div class="t"><span class="dot" style="background:${colorOf(n)}"></span>${G.roots.has(n.key)?`<span class="sn" style="background:${seedColor(n.key)}">${seedIndex(n.key)+1}</span> `:''}${isStarred(n)?'<span class="star">★</span> ':''}${esc(n.title)}</div>
       <div class="m">${esc(authorLine(n))}${n.year?' · '+n.year:''} · ${fmt(n.cites)} cites${G.roots.has(n.key)?' · <b>seed</b>':''}</div></div>`).join('');
   $('graphList').querySelectorAll('.item').forEach(it=>it.onclick = ()=>{ const n = G.nodes.get(it.dataset.k); select(n); centerOn(n); });
   if(q){ hl = {keys:new Set(nodes.map(n=>n.key)), label:'search “'+q+'”'}; selected = null; applyHighlight(); }
@@ -1414,7 +1628,72 @@ function renderList(force){
 /* =====================================================================
    ANALYSIS PANE
    ===================================================================== */
-function renderAnalysisIfOpen(){ if(!$('pane-analysis').hidden) renderAnalysis(); }
+function renderAnalysisIfOpen(){ if(!$('pane-analysis').hidden) renderAnalysis(); if(!$('pane-overlap').hidden) renderOverlap(); }
+
+/* =====================================================================
+   OVERLAP PANE (where seed papers intersect)
+   ===================================================================== */
+const seedBadge = k => `<span class="sn" style="background:${seedColor(k)}" title="${esc(G.nodes.get(k).title)}">${seedIndex(k)+1}</span>`;
+function overlapLists(){
+  const inFrom = new Map(), outTo = new Map();
+  for(const e of G.edges.values()){
+    const s = kOf(e.source), t = kOf(e.target);
+    if(G.roots.has(s) && !G.roots.has(t)){ if(!inFrom.has(t)) inFrom.set(t, new Set()); inFrom.get(t).add(s); }
+    if(G.roots.has(t) && !G.roots.has(s)){ if(!outTo.has(s)) outTo.set(s, new Set()); outTo.get(s).add(t); }
+  }
+  const pick = m => [...m].filter(([k,S])=>S.size>=2 && !G.nodes.get(k).hidden).map(([k,S])=>({n:G.nodes.get(k), seeds:[...S]})).sort((a,b)=>b.seeds.length-a.seeds.length || b.n.cites-a.n.cites);
+  const refs = pick(inFrom), cites = pick(outTo);
+  const direct = [...G.edges.values()].filter(e=>G.roots.has(kOf(e.source)) && G.roots.has(kOf(e.target)));
+  const M = ensureMetrics(), dk = new Set([...refs, ...cites].map(x=>x.n.key));
+  const indirect = [...M.sharedKeys].filter(k=>!dk.has(k)).map(k=>({n:G.nodes.get(k), seeds:M.reach.get(k)})).sort((a,b)=>b.seeds.length-a.seeds.length || b.n.cites-a.n.cites);
+  return {refs, cites, direct, indirect};
+}
+function ovItems(list, tag){
+  if(!list.length) return '<div class="muted small">None found.</div>';
+  return `<ul class="rank">${list.slice(0,100).map((x,i)=>`<li data-${tag}="${i}" title="${esc(x.n.title)}"><span>${x.seeds.map(seedBadge).join('')} ${esc(x.n.title)}</span><span class="n">${x.n.year||''}</span></li>`).join('')}</ul>${list.length>100?`<div class="muted small">…and ${list.length-100} more (see the graph list).</div>`:''}`;
+}
+function renderOverlap(){
+  const P = $('pane-overlap');
+  for(let i=bound.length-1;i>=0;i--) if(bound[i].ov) bound.splice(i,1);
+  if(!G){ P.innerHTML = '<div class="muted">Find where papers intersect: press <b>+ Seed</b> on 2–5 search results, then <b>Build combined graph & find overlap</b>.</div>'; return; }
+  const roots = [...G.roots];
+  let h = `<h3 style="margin-top:0">Seeds (${roots.length})</h3><ul class="rank">${roots.map(k=>{ const n = G.nodes.get(k); return `<li data-sk="${esc(k)}" title="${esc(n.title)}"><span>${seedBadge(k)} ${esc(n.title)}</span><span class="n">${n.year||''}</span></li>`; }).join('')}</ul>`;
+  if(roots.length < 2){
+    P.innerHTML = h + `<p class="muted small" style="margin-top:10px">To see where papers intersect, add another seed: search for a paper and press <b>Add to current graph</b>, or select any paper in the graph and press <b>Make seed</b>.</p>`;
+    wireOverlap({refs:[],cites:[],direct:[],indirect:[]}, []); return;
+  }
+  const L = overlapLists(), M = ensureMetrics(), D = int(settings.overlapDepth,1,1,4);
+  const sh = G.shared;
+  h += `<div class="ovsum"><div><b>${L.refs.length}</b>shared references</div><div><b>${L.cites.length}</b>papers citing 2+ seeds</div>
+    <div><b>${L.direct.length}</b>direct citations between seeds</div><div><b>${M.sharedAll.size}</b>linked to all ${roots.length} seeds${D>1?` (≤${D} links)`:''}</div></div>
+    <div id="ovCtl"></div>
+    <div class="acts2"><button class="btn small primary" id="ovFind">${sh&&sh.done?'Search again':'Find all shared papers'}</button><button class="btn small" id="ovHl">Highlight shared</button><button class="btn small" id="ovBib">Export shared (BibTeX)</button></div>
+    <div class="muted small">${sh&&sh.done ? `Searched each seed's complete reference list and ${sh.approx?'its top citing papers (approximate)':'all papers citing 2+ seeds (exact, via OpenAlex)'}.` : 'The graph only holds the top papers per seed. “Find all shared papers” checks every reference and every citing paper of each seed.'}</div>`;
+  if(L.direct.length) h += `<h3>Seeds citing each other</h3><ul class="rank">${L.direct.map(e=>`<li><span>${seedBadge(kOf(e.source))} cites ${seedBadge(kOf(e.target))} <span class="muted">${esc(trunc(G.nodes.get(kOf(e.target)).title,40))}</span></span></li>`).join('')}</ul>`;
+  h += `<h3>Shared references (${L.refs.length})</h3><div class="muted small">Papers cited by 2+ seeds — common foundations.</div>${ovItems(L.refs,'ovr')}`;
+  h += `<h3>Papers citing 2+ seeds (${L.cites.length})</h3><div class="muted small">Later work that builds on several seeds — often surveys or papers that connect the ideas.</div>${ovItems(L.cites,'ovc')}`;
+  if(D>1 || L.indirect.length) h += `<h3>Other connections (${L.indirect.length})</h3><div class="muted small">Linked to 2+ seeds in other ways — e.g. cites one seed and is cited by another${D>1?`, or within ${D} links`:''}.</div>${ovItems(L.indirect,'ovi')}`;
+  h += `<h3>Shortest connection between seeds</h3><ul class="rank">${M.pairs.map((pr,i)=>`<li data-ovp="${i}"><span>${seedBadge(pr.a)} ↔ ${seedBadge(pr.b)} ${pr.dist==null?'<span class="muted">not connected in this graph</span>':`${pr.dist} step${pr.dist>1?'s':''}`}</span>${pr.dist?'<span class="n"><button class="btn small">Show</button></span>':''}</li>`).join('')}</ul>`;
+  P.innerHTML = h;
+  const C = $('ovCtl'); const n0 = bound.length;
+  C.appendChild(ctl('showShared')); C.appendChild(ctl('overlapDepth'));
+  bound.slice(n0).forEach(b=>b.ov = true);
+  C.querySelectorAll('.ctl').forEach(el=>{ el.style.justifyContent = 'space-between'; el.style.margin = '4px 0'; });
+  wireOverlap(L, M.pairs);
+}
+function wireOverlap(L, pairs){
+  const P = $('pane-overlap');
+  P.querySelectorAll('[data-sk]').forEach(li=>li.onclick = ()=>{ const n = G.nodes.get(li.dataset.sk); select(n); centerOn(n); showTab('overlap'); });
+  [['ovr',L.refs],['ovc',L.cites],['ovi',L.indirect]].forEach(([tag,list])=>P.querySelectorAll(`[data-${tag}]`).forEach(li=>li.onclick = ()=>{ const n = list[+li.dataset[tag]].n; selected = n.key; hl = null; applyHighlight(); centerOn(n); showDetails(n, true); showTab('details'); }));
+  P.querySelectorAll('[data-ovp]').forEach(li=>li.onclick = ()=>{ const pr = pairs[+li.dataset.ovp]; if(!pr.dist) return;
+    pathState = {a:pr.a, b:pr.b, directed:false, nodes:new Set(pr.nodes), edges:new Set([...G.edges.values()].filter(e=>{ const s = kOf(e.source), t = kOf(e.target); const i = pr.nodes.indexOf(s), j = pr.nodes.indexOf(t); return i>=0 && j>=0 && Math.abs(i-j)===1; }).map(e=>e.key))};
+    if(settings.mode==='similarity'){ settings.mode = 'citation'; saveSettings(); syncControls(); render(false); }
+    selected = null; hl = null; applyHighlight(); drawLegend(); fit();
+    setStatus(`Connection: ${pr.nodes.map(k=>labelText(G.nodes.get(k),'author-year')).join(' — ')} · press Esc to clear`); });
+  const f = $('ovFind'); if(f) f.onclick = ()=>findShared(false);
+  const hb = $('ovHl'); if(hb) hb.onclick = ()=>{ const k = new Set([...L.refs, ...L.cites, ...L.indirect].map(x=>x.n.key)); G.roots.forEach(r=>k.add(r)); setHL(k, 'shared papers'); };
+  const bb = $('ovBib'); if(bb) bb.onclick = ()=>{ const ns = [...G.roots].map(k=>G.nodes.get(k)).concat([...L.refs, ...L.cites, ...L.indirect].map(x=>x.n)); exportBib(ns, fileBase()+'-overlap'); };
+}
 function rankHTML(rows, attr){ return `<ul class="rank">${rows.map((r,i)=>`<li data-${attr}="${i}" title="${esc(r[0])}"><span>${esc(r[0])}</span><span class="n">${r[1]}</span></li>`).join('')}</ul>`; }
 function renderAnalysis(){
   const P = $('pane-analysis');
@@ -1539,15 +1818,15 @@ function bibEntry(n, used){
   const f = [['title', n.title], ['author', n.authors.join(' and ')], ['year', n.year], [vf, n.venue], ['doi', n.doi], ['url', n.oaUrl || (n.doi ? 'https://doi.org/'+n.doi : '')]].filter(x=>x[1]);
   return `@${type}{${id},\n${f.map(([k,v])=>`  ${k} = {${String(v).replace(/[{}]/g,'')}}`).join(',\n')}\n}`;
 }
-function exportBib(){ const used = new Set(); download(fileBase()+'.bib', exportNodes().map(n=>bibEntry(n, used)).join('\n\n'), 'text/plain'); }
-function exportRIS(){
+function exportBib(nodes, base){ const used = new Set(); download((base||fileBase())+'.bib', (nodes||exportNodes()).map(n=>bibEntry(n, used)).join('\n\n'), 'text/plain'); }
+function exportRIS(nodes, base){
   const T = {article:'JOUR', review:'JOUR', preprint:'UNPB', book:'BOOK', 'book-chapter':'CHAP', dataset:'DATA', dissertation:'THES', other:'GEN'};
-  const out = exportNodes().map(n=>{
+  const out = (nodes||exportNodes()).map(n=>{
     const L = [['TY', /conference|proceedings/i.test(n.venue||'') ? 'CONF' : (T[n.type]||'JOUR')], ['TI', n.title], ...n.authors.map(a=>['AU', a]), ['PY', n.year], ['T2', n.venue], ['DO', n.doi],
       ['UR', n.oaUrl || (n.doi ? 'https://doi.org/'+n.doi : '')], ['AB', n.abstract]].filter(x=>x[1]);
     return L.map(([k,v])=>`${k}  - ${String(v).replace(/\s+/g,' ')}`).join('\r\n') + '\r\nER  - ';
   });
-  download(fileBase()+'.ris', out.join('\r\n\r\n')+'\r\n', 'application/x-research-info-systems');
+  download((base||fileBase())+'.ris', out.join('\r\n\r\n')+'\r\n', 'application/x-research-info-systems');
 }
 const xmlEsc = s => String(s==null?'':s).replace(/[<>&"']/g, c=>({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;',"'":'&apos;'}[c]));
 function resolvedColor(n){ const c = colorOf(n); if(!String(c).startsWith('var(')) return c; return getComputedStyle(document.documentElement).getPropertyValue(c.slice(4,-1)).trim() || NA; }
@@ -1590,7 +1869,8 @@ function svgSnapshot(){
   const so = src.querySelectorAll('*'), co = clone.querySelectorAll('*');
   so.forEach((el,i)=>{ const cs = getComputedStyle(el); co[i].setAttribute('style', props.map(p=>`${p}:${cs.getPropertyValue(p)}`).join(';')); });
   const cz = clone.querySelector('#zoomG'); cz.removeAttribute('transform');
-  const ax = clone.querySelector('#axisOverlay'); if(ax) ax.remove();
+  ['#axisOverlay','#seedMarks'].forEach(sel=>{ const el = clone.querySelector(sel); if(el) el.remove(); });
+  clone.querySelectorAll('.halo').forEach(el=>el.style.animation = 'none');
   const w = Math.ceil(bb.width+2*pad), h = Math.ceil(bb.height+2*pad);
   clone.setAttribute('xmlns','http://www.w3.org/2000/svg'); clone.setAttribute('viewBox', `${bb.x-pad} ${bb.y-pad} ${w} ${h}`);
   clone.setAttribute('width', w); clone.setAttribute('height', h); clone.removeAttribute('style'); clone.removeAttribute('id');
@@ -1651,18 +1931,46 @@ function renderLibrary(){
   const P = $('pane-library'), idx = libIndex();
   const defName = G && G.roots.size ? trunc(G.nodes.get([...G.roots][0]).title, 60) : '';
   P.innerHTML = `
-    <h3 style="margin-top:0">Save current graph</h3>
+    <h3 style="margin-top:0">Reading list (${Object.keys(starsGet()).length})</h3>
+    <div id="starBox"></div>
+    <h3>Save current graph</h3>
     <div style="display:flex;gap:6px"><input id="saveName" class="ctl" style="flex:1;padding:6px 8px;border:1px solid var(--line);border-radius:6px;background:var(--bg)" value="${esc(defName)}" ${G?'':'disabled'} placeholder="Name"><button class="btn small primary" id="saveBtn" ${G?'':'disabled'}>Save</button></div>
     <div class="muted small" style="margin-top:4px">Saved in this browser only. For backups or sharing, use JSON export/import.</div>
     <div class="acts2"><button class="btn small" id="importBtn">Import JSON…</button><button class="btn small" id="exportJsonBtn" ${G?'':'disabled'}>Export JSON</button></div>
     <h3>Saved graphs (${idx.length})</h3>
     ${idx.length ? `<ul class="rank">${idx.map((g,i)=>`<li data-lib="${i}"><span title="${esc(g.name)}">${esc(trunc(g.name,40))}<br><span class="muted small">${new Date(g.savedAt).toLocaleString()} · ${g.count} papers</span></span>
       <span class="n" style="display:flex;gap:4px"><button class="btn small" data-load="${i}">Open</button><button class="btn small" data-del="${i}" aria-label="Delete">✕</button></span></li>`).join('')}</ul>` : '<div class="muted small">Nothing saved yet.</div>'}`;
+  renderStars();
   if(G) $('saveBtn').onclick = ()=>saveToLibrary($('saveName').value.trim());
   $('importBtn').onclick = ()=>$('importFile').click();
   if(G) $('exportJsonBtn').onclick = exportJSON;
   P.querySelectorAll('[data-load]').forEach(b=>b.onclick = ()=>{ const g = idx[+b.dataset.load], d = LS.get('cg.g:'+g.id, null); if(!d){ setStatus('That saved graph could not be read.'); return; } deserialize(d); });
   P.querySelectorAll('[data-del]').forEach(b=>b.onclick = ()=>{ const g = idx[+b.dataset.del]; if(!confirm(`Delete “${g.name}”?`)) return; LS.del('cg.g:'+g.id); idx.splice(+b.dataset.del,1); LS.set('cg.lib', idx); renderLibrary(); });
+}
+/* ---------- reading list (starred papers, kept across graphs) ---------- */
+function starsGet(){ return LS.get('cg.stars', {}); }
+function isStarred(p){ const s = starsGet(); return !!s[keyOf(p)]; }
+function toggleStar(p){
+  const s = starsGet(), k = keyOf(p);
+  if(s[k]) delete s[k];
+  else { const o = {}; ['doi','oa','s2','arxiv','title','year','authors','venue','cites','refsCount','type','isOA','oaUrl'].forEach(f=>{ if(p[f]!=null && p[f]!=='') o[f] = p[f]; }); o.starredAt = Date.now(); s[k] = o; }
+  if(!LS.set('cg.stars', s)){ setStatus('Could not save the reading list (browser storage full or blocked).'); return; }
+  setStatus(s[k] ? `Added to reading list: “${trunc(p.title,50)}”` : 'Removed from reading list');
+  if(!$('pane-library').hidden) renderLibrary();
+  if(G && $('graphList')) renderList();
+}
+function renderStars(){
+  const box = $('starBox'); if(!box) return;
+  const s = starsGet(), list = Object.entries(s).sort((a,b)=>(b[1].starredAt||0)-(a[1].starredAt||0));
+  if(!list.length){ box.innerHTML = '<div class="muted small">Star papers with “☆ Reading list” in the details panel (or press <kbd>R</kbd>). They stay here across graphs.</div>'; return; }
+  box.innerHTML = `<ul class="rank">${list.map(([k,p],i)=>`<li data-star="${i}" title="${esc(p.title)}"><span><span class="star">★</span> ${esc(p.title)}</span><span class="n" style="display:flex;gap:4px;align-items:center">${p.year||''}<button class="btn small" data-unstar="${i}" aria-label="Remove">✕</button></span></li>`).join('')}</ul>
+    <div class="acts2"><button class="btn small" id="starBib">Export BibTeX</button><button class="btn small" id="starRis">Export RIS</button><button class="btn small" id="starSeeds">Use as seeds</button></div>`;
+  const papers = list.map(([k,p])=>paper(Object.assign({}, p)));
+  box.querySelectorAll('[data-star]').forEach(li=>li.onclick = e=>{ if(e.target.dataset.unstar!==undefined) return; const p = papers[+li.dataset.star], n = G && findNode(p); if(n){ select(n); centerOn(n); } else { showTab('details'); showDetails(p, false); } });
+  box.querySelectorAll('[data-unstar]').forEach(b=>b.onclick = e=>{ e.stopPropagation(); toggleStar(papers[+b.dataset.unstar]); });
+  $('starBib').onclick = ()=>exportBib(papers, 'reading-list');
+  $('starRis').onclick = ()=>exportRIS(papers, 'reading-list');
+  $('starSeeds').onclick = ()=>{ papers.slice(0,8).forEach(addSeed); };
 }
 function exportJSON(){ if(G) download(fileBase()+'.json', JSON.stringify(serialize(), null, 1), 'application/json'); }
 $('importFile').onchange = e=>{
@@ -1716,8 +2024,10 @@ const DEFS = {
   // view
   mode:{t:'seg', o:[['citation','Citations'],['similarity','Similarity']], on:'render'},
   layout:{l:'Layout', t:'select', o:[['force','Force'],['timeline','Timeline (x = year)'],['radial','Radial by depth'],['hierarchy','Citing ↑ / cited ↓']], on:'render'},
-  colorBy:{l:'Color', t:'select', o:[['year','Year'],['cluster','Cluster'],['depth','Depth'],['side','Citing / cited side'],['cites','Citations'],['pagerank','PageRank'],['simSeed','Similarity to seed'],['venue','Venue'],['author','First author'],['type','Document type'],['oa','Open access']], on:'list'},
+  colorBy:{l:'Color', t:'select', o:[['seeds','Seed / overlap'],['year','Year'],['cluster','Cluster'],['depth','Depth'],['side','Citing / cited side'],['cites','Citations'],['pagerank','PageRank'],['simSeed','Similarity to seed'],['venue','Venue'],['author','First author'],['type','Document type'],['oa','Open access']], on:'list'},
   sizeBy:{l:'Size', t:'select', o:[['cites','Citations'],['pagerank','PageRank'],['degree','Links in graph'],['indeg','Cited within graph'],['refs','References'],['simSeed','Similarity to seed'],['uniform','Uniform']], on:'restyle'},
+  showShared:{l:'Show', t:'select', o:[['all','All papers'],['shared','Only shared by 2+ seeds'],['allseeds','Only shared by all seeds']], on:'list', help:'Keeps the seeds, the papers they share, and the shortest connections between them.'},
+  overlapDepth:{l:'Count as shared if within', t:'select', o:[['1','1 link (direct)'],['2','2 links'],['3','3 links']], on:'list'},
   palette:{l:'Palette', t:'select', o:Object.keys(PAL).map(p=>[p, p[0].toUpperCase()+p.slice(1)]), on:'list'},
   reversePalette:{l:'Reverse palette', t:'check', on:'list'},
   sizeScale:{l:'Node size', t:'range', min:0.2, max:3, step:0.1, on:'restyle'},
@@ -1810,6 +2120,7 @@ function buildToolbar(){
   const T = $('toolbar');
   T.appendChild(ctl('mode'));
   ['layout','colorBy','sizeBy'].forEach(k=>T.appendChild(ctl(k)));
+  const ss = ctl('showShared'); ss.id = 'showSharedCtl'; ss.hidden = true; T.appendChild(ss);
   const sp = document.createElement('span'); sp.className = 'sp'; T.appendChild(sp);
   [['View options','viewBtn'],['Grow +1 level','growBtn'],['Fit','fitBtn'],['Export ▾','exportBtn'],['Save','saveQuick']].forEach(([t,id])=>{ const b = document.createElement('button'); b.className = 'btn small'; b.id = id; b.textContent = t; T.appendChild(b); });
   $('viewBtn').onclick = ()=>togglePop('viewPanel');
@@ -1856,7 +2167,7 @@ const STABS = [
   ['keys','Shortcuts', ()=>[ note(`<div class="kv" style="font-size:13px;color:var(--ink)">
      <kbd>/</kbd><span>Focus search</span><kbd>Esc</kbd><span>Clear selection, highlight & path</span><kbd>F</kbd><span>Fit graph to screen</span>
      <kbd>E</kbd><span>Expand selected paper</span><kbd>H</kbd><span>Hide selected paper</span><kbd>P</kbd><span>Pin / unpin selected paper</span>
-     <kbd>G</kbd><span>Grow graph by one level</span><kbd>S</kbd><span>Switch citation / similarity view</span><kbd>L</kbd><span>Cycle layouts</span>
+     <kbd>G</kbd><span>Grow graph by one level</span><kbd>S</kbd><span>Switch citation / similarity view</span><kbd>L</kbd><span>Cycle layouts</span><kbd>R</kbd><span>Add / remove selected paper in reading list</span><span><kbd>1</kbd>–<kbd>8</kbd></span><span>Jump to seed 1–8</span>
      <span>Double-click</span><span>Expand a paper</span><span>Shift + click</span><span>Set citation-path start, then end</span><span>Drag</span><span>Move a paper (pinned papers stay put)</span></div>
      <p style="margin-top:12px">Tip: open the app with <code>#q=your title</code> at the end of the URL to search immediately.</p>`, false, true)]],
 ];
@@ -1915,8 +2226,8 @@ function busy(b){ $('cancelBtn').hidden = !b; $('growBtn') && ($('growBtn').disa
 function showSource(){ const s = $('srcInfo'); if(s) s.textContent = lastSource ? 'Data: '+NAMES[lastSource] : ''; }
 function showTab(t){
   document.querySelectorAll('#right .tab').forEach(b=>b.classList.toggle('on', b.dataset.tab===t));
-  ['details','analysis','library'].forEach(x=>$('pane-'+x).hidden = x!==t);
-  if(t==='analysis') renderAnalysis(); if(t==='library') renderLibrary();
+  ['details','overlap','analysis','library'].forEach(x=>$('pane-'+x).hidden = x!==t);
+  if(t==='analysis') renderAnalysis(); if(t==='library') renderLibrary(); if(t==='overlap') renderOverlap();
 }
 document.querySelectorAll('#right .tab').forEach(b=>b.onclick = ()=>showTab(b.dataset.tab));
 $('cancelBtn').onclick = ()=>{ cancelFlag = true; setStatus('Stopping…'); };
@@ -1937,6 +2248,8 @@ document.addEventListener('keydown', e=>{
   else if(k==='p' && n){ n.pinned = !n.pinned; if(n.pinned){ n.fx = n.x; n.fy = n.y; } else { n.fx = null; n.fy = null; } applyHighlight(); showDetails(n, true); }
   else if(k==='g') growLevel();
   else if(k==='s'){ settings.mode = settings.mode==='citation' ? 'similarity' : 'citation'; saveSettings(); syncControls(); render(true); renderAnalysisIfOpen(); }
+  else if(k==='r' && n){ toggleStar(n); showDetails(n, true); }
+  else if(/^[1-8]$/.test(e.key) && G){ const sk = [...G.roots][+e.key-1]; if(sk){ const s = G.nodes.get(sk); select(s); centerOn(s); } }
   else if(k==='l'){ const L = ['force','timeline','radial','hierarchy']; settings.layout = L[(L.indexOf(settings.layout)+1)%L.length]; saveSettings(); syncControls(); render(true); }
 });
 
